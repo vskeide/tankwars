@@ -65,7 +65,9 @@ export class Fx {
   explosion(x: number, y: number, radius: number, weapon: Weapon): void {
     const yy = this.y(y);
     const big = radius > 50;
-    const size = big ? 'large' : radius > 28 ? 'medium' : 'small';
+    const wanted = big ? 'large' : radius > 28 ? 'medium' : 'small';
+    // Until the dedicated explosion sheet exists, one frame set serves all sizes.
+    const size = atlasHas(`fx.explosion.${wanted}.0`) ? wanted : 'medium';
     if (atlasHas(`fx.explosion.${size}.0`)) {
       const spr = this.scene.add.sprite(x, yy, `fx.explosion.${size}.0`).setDepth(42);
       const frames = 10;
@@ -77,7 +79,7 @@ export class Fx {
           frameRate: 18,
         });
       }
-      spr.setScale(Math.max(0.6, (radius * 2.6) / 64));
+      spr.setScale(Math.max(0.5, (radius * 2.4) / Math.max(spr.width, 1)));
       spr.play(key).once('animationcomplete', () => spr.destroy());
     } else {
       // Fallback: a couple of expanding palette rings.
