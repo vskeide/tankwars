@@ -277,3 +277,33 @@ export function botShop(
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
+
+/**
+ * Solve a shot from an arbitrary muzzle position at a target point — used by boss
+ * hardpoints and stationary defences. Returns null when nothing reasonable exists.
+ */
+export function solveFrom(
+  world: World,
+  from: { x: number; y: number },
+  target: { x: number; y: number },
+  weapon: Weapon,
+  samples: number,
+  rand: () => number,
+  noiseDeg = 0,
+): { angle: number; power: number } | null {
+  const facingRight = target.x > from.x;
+  const opts = { wind: world.wind, tanks: [] as TankHitbox[], mapWidth: world.width, mapHeight: world.height, piercesTerrain: weapon.behaviour === 'railgun', maxSteps: 2400 };
+  let best = { angle: 0, power: 0, miss: Infinity };
+  for (let i = 0; i < samples; i++) {
+    const angle = facingRight ? 20 + rand() * 65 : 95 + rand() * 65;
+    const power = 20 + rand() * 80;
+    const vel = launchVelocity(angle, power, weapon.speedScale);
+    const r = simulateFlight(from, vel, world.terrain, opts, weapon.windFactor, weapon.gravityFactor);
+    if (r.impact.kind === 'offmap' || r.impact.kind === 'expired') continue;
+    const miss = Math.hypot(r.impact.at.x - target.x, r.impact.at.y - target.y);
+    if (miss < best.miss) best = { angle, power, miss };
+  }
+  if (!Number.isFinite(best.miss)) return null;
+  const g = () => (rand() + rand() + rand() - 1.5) * 1.63;
+  return { angle: clamp(best.angle + g() * noiseDeg, 0, 180), power: clamp(best.power + g() * noiseDeg * 0.8, 5, 100) };
+}

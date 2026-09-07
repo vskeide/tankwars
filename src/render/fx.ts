@@ -150,7 +150,7 @@ export class Fx {
 
   damageNumber(x: number, y: number, amount: number, colour: number = PAL.uiText): void {
     const t = this.scene.add
-      .text(x, this.y(y) - 16, `-${amount}`, { fontFamily: 'monospace', fontSize: '10px', color: '#' + colour.toString(16).padStart(6, '0'), stroke: '#0d0709', strokeThickness: 3 })
+      .text(x, this.y(y) - 16, `-${amount}`, { fontFamily: 'monospace', fontSize: '13px', color: '#' + colour.toString(16).padStart(6, '0'), stroke: '#0d0709', strokeThickness: 3 })
       .setOrigin(0.5)
       .setDepth(80);
     this.scene.tweens.add({ targets: t, y: t.y - 18, alpha: 0, duration: 900, ease: 'Quad.out', onComplete: () => t.destroy() });

@@ -6,12 +6,17 @@ import { tankClassesForMode } from '../../core/tanks';
 import type { Difficulty, GameModeId } from '../../core/types';
 import { KEY_SETS } from '../../core/input';
 import { NATIVE_H, NATIVE_W } from '../config';
+import { LEVELS } from '../../core/campaign/levels';
 import { DEFAULT_SETUP, type BattleSetup } from '../setup';
 import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { buildBackdrop } from '../backdrop';
 
-type ModeOption = { id: GameModeId | 'arena'; name: string; tagline: string; description: string };
+/** Menu layout grid; the camera zooms it to fill the native canvas. */
+const LAYOUT_W = 640;
+const LAYOUT_H = 360;
+
+type ModeOption = { id: GameModeId | 'arena' | 'campaign'; name: string; tagline: string; description: string };
 
 const MODES: ModeOption[] = [
   ...GAME_MODES.map((m) => ({ id: m.id, name: m.name, tagline: m.tagline, description: m.description })),
@@ -23,6 +28,15 @@ const MODES: ModeOption[] = [
       'No turns: every tank drives, aims and fires simultaneously. Hold fire to charge power, release to shoot. ' +
       'Crates parachute in with weapons, repairs and shields. Two to four players on one keyboard plus bots. ' +
       'Controls: P1 WASD + Space/Q · P2 arrows + Enter/RShift · P3 IJKL + O/U · P4 numpad.',
+  },
+  {
+    id: 'campaign',
+    name: 'Campaign',
+    tagline: 'Twelve levels, three bosses.',
+    description:
+      'Real-time missions across dunes, mesas, crags and ash spires against scripted enemy armour, ' +
+      'with the Iron Behemoth and the Desert Juggernaut waiting at the passes. One or two players ' +
+      'on one keyboard. Progress is saved in this browser.',
   },
 ];
 
@@ -44,18 +58,20 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
-    const bd = buildBackdrop(this, NATIVE_W, NATIVE_H, NATIVE_H * 0.78, 1234);
+    this.cameras.main.setZoom(NATIVE_W / LAYOUT_W).centerOn(LAYOUT_W / 2, LAYOUT_H / 2);
+    void NATIVE_H;
+    const bd = buildBackdrop(this, LAYOUT_W, LAYOUT_H, LAYOUT_H * 0.78, 1234);
     this.add.image(0, 0, bd.sky).setOrigin(0).setDepth(0);
     this.add.image(-40, 0, bd.farMesas).setOrigin(0).setDepth(1);
     this.add.image(-80, 0, bd.nearMesas).setOrigin(0).setDepth(2);
-    this.add.graphics().fillStyle(PAL.uiInk, 0.72).fillRect(0, 0, NATIVE_W, NATIVE_H).setDepth(3);
+    this.add.graphics().fillStyle(PAL.uiInk, 0.72).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
 
     if (atlasHas('boss.behemoth.r')) {
-      this.add.image(NATIVE_W - 90, NATIVE_H - 8, 'boss.behemoth.r').setOrigin(0.5, 1).setDepth(2).setAlpha(0.55).setScale(1.1);
+      this.add.image(LAYOUT_W - 90, LAYOUT_H - 8, 'boss.behemoth.r').setOrigin(0.5, 1).setDepth(2).setAlpha(0.55).setScale(1.1);
     }
 
-    this.add.text(NATIVE_W / 2, 18, 'T A N K W A R S', { fontFamily: 'monospace', fontSize: '22px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 5 }).setOrigin(0.5).setDepth(10);
-    this.add.text(NATIVE_W / 2, 36, 'artillery, redrawn', { fontFamily: 'monospace', fontSize: '8px', color: hex(PAL.uiTextDim) }).setOrigin(0.5).setDepth(10);
+    this.add.text(LAYOUT_W / 2, 18, 'T A N K W A R S', { fontFamily: 'monospace', fontSize: '22px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 5 }).setOrigin(0.5).setDepth(10);
+    this.add.text(LAYOUT_W / 2, 36, 'artillery, redrawn', { fontFamily: 'monospace', fontSize: '8px', color: hex(PAL.uiTextDim) }).setOrigin(0.5).setDepth(10);
 
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => this.onKey(e));
     this.input.once('pointerdown', () => this.sfx.unlock());
@@ -109,7 +125,8 @@ export class MenuScene extends Phaser.Scene {
   private rows(): Row[] {
     const r: Row[] = ['mode', 'players'];
     for (let i = 0; i < this.setup.players.length; i++) r.push(`p${i}` as Row);
-    r.push('rounds', 'terrain', 'start');
+    if (this.setup.kind !== 'campaign') r.push('rounds', 'terrain');
+    r.push('start');
     return r;
   }
 
@@ -119,8 +136,11 @@ export class MenuScene extends Phaser.Scene {
       case 'mode': {
         this.modeIndex = (this.modeIndex + dir + MODES.length) % MODES.length;
         const m = MODES[this.modeIndex];
-        s.kind = m.id === 'arena' ? 'arena' : 'turn';
-        s.mode = m.id === 'arena' ? 'advanced' : m.id;
+        s.kind = m.id === 'arena' ? 'arena' : m.id === 'campaign' ? 'campaign' : 'turn';
+        s.mode = m.id === 'arena' || m.id === 'campaign' ? 'advanced' : m.id;
+        if (m.id === 'campaign') {
+          s.players = s.players.slice(0, 2).map((p, i) => ({ ...p, isBot: false, name: `Player ${i + 1}` }));
+        }
         // Reset classes to something legal for the mode.
         const legal = tankClassesForMode(s.mode).map((c) => c.id);
         s.players.forEach((p) => {
@@ -129,7 +149,7 @@ export class MenuScene extends Phaser.Scene {
         break;
       }
       case 'players': {
-        const n = Math.max(2, Math.min(4, s.players.length + dir));
+        const n = s.kind === 'campaign' ? Math.max(1, Math.min(2, s.players.length + dir)) : Math.max(2, Math.min(4, s.players.length + dir));
         while (s.players.length < n) {
           const i = s.players.length;
           s.players.push({ name: `Bot ${BOT_NAMES[i]}`, colour: i, isBot: true, difficulty: 'gunner', tankClass: tankClassesForMode(s.mode)[i % tankClassesForMode(s.mode).length].id });
@@ -163,8 +183,17 @@ export class MenuScene extends Phaser.Scene {
     }
   }
 
+  private savedLevel(): string {
+    try {
+      const v = localStorage.getItem('tankwars.campaign.level');
+      if (v && LEVELS.some((l) => l.id === v)) return v;
+    } catch { /* private mode */ }
+    return LEVELS[0].id;
+  }
+
   private start(): void {
     this.setup.seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) & 0x7fffffff;
+    if (this.setup.kind === 'campaign') this.setup.levelId = this.savedLevel();
     this.scene.start('battle', structuredClone(this.setup));
   }
 
@@ -199,14 +228,20 @@ export class MenuScene extends Phaser.Scene {
       this.texts.push(t, l);
       y += 12;
     });
-    line('ROUNDS', `‹ ${s.rounds} ›`, 'rounds');
-    const ts = TERRAIN_STYLES.find((t) => t.id === s.terrainStyle);
-    line('TERRAIN', `‹ ${ts ? ts.name.toUpperCase() : 'RANDOM'} ›`, 'terrain');
+    if (s.kind !== 'campaign') {
+      line('ROUNDS', `‹ ${s.rounds} ›`, 'rounds');
+      const ts = TERRAIN_STYLES.find((t) => t.id === s.terrainStyle);
+      line('TERRAIN', `‹ ${ts ? ts.name.toUpperCase() : 'RANDOM'} ›`, 'terrain');
+    } else {
+      const lv = LEVELS.find((l) => l.id === this.savedLevel())!;
+      this.texts.push(this.add.text(x0 + 130, y, `next mission: ${LEVELS.indexOf(lv) + 1}/${LEVELS.length} — ${lv.name}`, { fontFamily: 'monospace', fontSize: '8px', color: hex(PAL.uiTextDim) }).setDepth(10));
+      y += 12;
+    }
     y += 6;
     line('START BATTLE', this.row === 'start' ? 'press ENTER' : '', 'start');
 
     this.texts.push(
-      this.add.text(NATIVE_W / 2, NATIVE_H - 10, '↑↓ select   ←→ change   TAB next field   ENTER confirm', { fontFamily: 'monospace', fontSize: '7px', color: hex(PAL.uiTextDim) }).setOrigin(0.5).setDepth(10),
+      this.add.text(LAYOUT_W / 2, LAYOUT_H - 10, '↑↓ select   ←→ change   TAB next field   ENTER confirm', { fontFamily: 'monospace', fontSize: '7px', color: hex(PAL.uiTextDim) }).setOrigin(0.5).setDepth(10),
     );
   }
 }

@@ -79,7 +79,9 @@ export interface Projectile extends ProjectileState {
   state: 'flying' | 'rolling' | 'tunnelling' | 'done';
   /** Highest point reached, for apex-splitting weapons. */
   apexY: number;
-  /** Grace steps before it can hit its own shooter. */
+  /** True once the shell has left its owner's hull; only then can it hit the owner. */
+  leftOwner: boolean;
+  /** Minimum steps of flight before an owner hit counts, on top of leftOwner. */
   grace: number;
   /** Rolling state. */
   rollDir: number;
@@ -145,7 +147,7 @@ export interface WorldOptions {
 }
 
 /** Arena-mode tank drive speed in px/s. */
-export const DRIVE_SPEED = 140;
+export const DRIVE_SPEED = 190;
 /** Arena-mode barrel rotation speed cap, deg/s. */
 export const AIM_SPEED = 90;
 export const POWER_SPEED = 60;
@@ -182,7 +184,15 @@ export class World {
     this.terrain = t;
     this.projectiles = [];
     this.crates = [];
+    this.hardpoints = [];
     this.time = 0;
+  }
+
+  /** Spawn a projectile from an arbitrary point — boss weapons, defences, scripted events. */
+  fireFrom(from: Vec2, vel: Vec2, weapon: Weapon, owner: number): void {
+    this.spawnProjectile(from, vel, weapon, owner, 0);
+    const angle = (Math.atan2(-vel.y, vel.x) * 180) / Math.PI;
+    this.events.push({ kind: 'launch', from, weapon, shooter: owner, angle });
   }
 
   addTank(setup: {
@@ -394,7 +404,8 @@ export class World {
       age: 0,
       state: 'flying',
       apexY: pos.y,
-      grace: depth === 0 ? 10 : 0,
+      grace: depth === 0 ? 40 : 6,
+      leftOwner: depth > 0,
       rollDir: 0,
       rollSteps: 0,
       tunnelLeft: 0,
@@ -444,7 +455,7 @@ export class World {
     const wind = this.wind;
     for (const p of this.projectiles) {
       if (p.state === 'done') continue;
-      const shooter = this.tanks[p.owner];
+      const shooter = p.owner >= 0 ? this.tanks[p.owner] : undefined;
       const w = shooter ? this.effectiveWindFor(shooter) : wind;
 
       if (p.state === 'rolling') {
@@ -505,16 +516,17 @@ export class World {
   private findHit(p: Projectile): Damageable | null {
     for (const d of this.damageables()) {
       if (!d.alive) continue;
-      if (d.kind === 'tank' && d.owner === p.owner && p.grace > 0) continue;
       const cy = d.kind === 'tank' ? d.y - d.halfHeight : d.y;
-      if (
-        p.pos.x >= d.x - d.halfWidth &&
-        p.pos.x <= d.x + d.halfWidth &&
-        p.pos.y >= cy - d.halfHeight &&
-        p.pos.y <= cy + d.halfHeight
-      ) {
-        return d;
+      const inside =
+        p.pos.x >= d.x - d.halfWidth - 2 &&
+        p.pos.x <= d.x + d.halfWidth + 2 &&
+        p.pos.y >= cy - d.halfHeight - 2 &&
+        p.pos.y <= cy + d.halfHeight + 2;
+      if (d.kind === 'tank' && d.owner === p.owner) {
+        if (!inside) p.leftOwner = true;
+        if (!p.leftOwner || p.grace > 0) continue;
       }
+      if (inside) return d;
     }
     return null;
   }

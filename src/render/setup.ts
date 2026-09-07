@@ -3,7 +3,9 @@ import type { GameModeId } from '../core/types';
 
 /** What the menu hands to the battle scene. */
 export interface BattleSetup {
-  kind: 'turn' | 'arena';
+  kind: 'turn' | 'arena' | 'campaign';
+  /** Campaign level id when kind === 'campaign'. */
+  levelId?: string;
   mode: GameModeId;
   players: PlayerSetup[];
   rounds: number;

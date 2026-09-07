@@ -2,7 +2,11 @@ import type { Vec2 } from './types';
 import type { Terrain } from './terrain';
 
 /** Pixels per second squared. Tuned so a full-power shot arcs across a screen. */
-export const GRAVITY = 260;
+export const GRAVITY = 220;
+
+/** Launch-speed multiplier applied on top of each weapon's speedScale. Max-power
+ *  range at 45° is (100·3.1·SPEED)²/GRAVITY ≈ 920 px — most of a 960-px map. */
+export const SPEED = 1.45;
 
 /** Fixed simulation step. Trajectories are deterministic and replayable. */
 export const SIM_DT = 1 / 120;
@@ -41,7 +45,7 @@ export interface TankHitbox {
 /** Convert an artillery aim into a launch velocity. Angle is degrees from +X, CCW. */
 export function launchVelocity(angleDeg: number, power: number, speedScale = 3.1): Vec2 {
   const a = (angleDeg * Math.PI) / 180;
-  const speed = power * speedScale;
+  const speed = power * speedScale * SPEED;
   return { x: Math.cos(a) * speed, y: -Math.sin(a) * speed };
 }
 

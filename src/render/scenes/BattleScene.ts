@@ -3,10 +3,12 @@ import { PAL, TEAM_COLOURS, hex } from '../../core/palette';
 import { SIM_DT, launchVelocity, simulateFlight } from '../../core/physics';
 import { TurnBasedMatch } from '../../core/rules/turnBased';
 import { ArenaMatch } from '../../core/rules/arena';
+import { CampaignLevel } from '../../core/rules/campaign';
+import { LEVELS } from '../../core/campaign/levels';
 import { BotController } from '../../core/ai';
 import { emptyIntent, type Intent } from '../../core/input';
 import { weaponById } from '../../core/weapons';
-import type { Crate, Projectile, Tank, World, WorldEvent } from '../../core/world';
+import type { Crate, Hardpoint, Projectile, Tank, World, WorldEvent } from '../../core/world';
 import { HUD_H, NATIVE_H, NATIVE_W, TERRAIN_H, TERRAIN_W } from '../config';
 import { buildBackdrop } from '../backdrop';
 import { TerrainView } from '../terrainView';
@@ -43,7 +45,9 @@ export class BattleScene extends Phaser.Scene {
   private setup!: BattleSetup;
   private turn: TurnBasedMatch | null = null;
   private arena: ArenaMatch | null = null;
+  private campaign: CampaignLevel | null = null;
   private world!: World;
+  private bossViews: { img: Phaser.GameObjects.Image | null; bars: Phaser.GameObjects.Graphics }[] = [];
 
   private terrainView!: TerrainView;
   private hud!: Hud;
@@ -76,6 +80,8 @@ export class BattleScene extends Phaser.Scene {
     this.setup = setup;
     this.turn = null;
     this.arena = null;
+    this.campaign = null;
+    this.bossViews = [];
     this.bots = new Map();
     this.tankViews = new Map();
     this.projViews = new Map();
@@ -95,7 +101,11 @@ export class BattleScene extends Phaser.Scene {
   create(): void {
     const s = this.setup;
     const common = { players: s.players, rounds: s.rounds, seed: s.seed, width: TERRAIN_W, height: TERRAIN_H, terrainStyle: s.terrainStyle };
-    if (s.kind === 'arena') {
+    if (s.kind === 'campaign') {
+      const humans = s.players.filter((p) => !p.isBot).slice(0, 2);
+      this.campaign = new CampaignLevel({ levelId: s.levelId ?? LEVELS[0].id, players: humans.length ? humans : s.players.slice(0, 1), seed: s.seed, width: TERRAIN_W, height: TERRAIN_H });
+      this.world = this.campaign.world;
+    } else if (s.kind === 'arena') {
       this.arena = new ArenaMatch({ ...common, crateInterval: 9, windInterval: 12 });
       this.world = this.arena.world;
     } else {
@@ -116,6 +126,14 @@ export class BattleScene extends Phaser.Scene {
       this.makeTankView(t);
       if (t.isBot) this.bots.set(t.index, new BotController());
     }
+    if (this.campaign) {
+      for (const boss of this.campaign.bosses) {
+        const key = atlasHas(`${boss.def.skin}.l`) ? `${boss.def.skin}.l` : atlasHas(`${boss.def.skin}.r`) ? `${boss.def.skin}.r` : null;
+        const img = key ? this.add.image(boss.x, boss.y + HUD_H, key).setOrigin(0.5, 1).setDepth(28) : null;
+        if (img && key && key.endsWith('.r')) img.setFlipX(true);
+        this.bossViews.push({ img, bars: this.add.graphics().setDepth(62) });
+      }
+    }
 
     this.input.keyboard!.on('keydown-ESC', () => this.scene.start('menu'));
     this.input.keyboard!.on('keydown-P', () => (this.paused = !this.paused));
@@ -123,12 +141,13 @@ export class BattleScene extends Phaser.Scene {
     this.input.keyboard!.once('keydown', () => this.sfx.unlock());
     this.input.once('pointerdown', () => this.sfx.unlock());
 
-    this.hud.showBanner(this.arena ? `ROUND ${this.roundNumber()}\nGET READY` : `ROUND ${this.roundNumber()}\n${this.turn!.currentTank.name.toUpperCase()} FIRST`, 1600);
+    if (this.campaign) this.hud.showBanner(`${this.campaign.level.name.toUpperCase()}\n${this.campaign.level.brief}`, 3200);
+    else this.hud.showBanner(this.arena ? `ROUND ${this.roundNumber()}\nGET READY` : `ROUND ${this.roundNumber()}\n${this.turn!.currentTank.name.toUpperCase()} FIRST`, 1600);
     this.events.on('wake', () => this.onWake());
   }
 
   private roundNumber(): number {
-    return this.turn ? this.turn.round : this.arena!.round;
+    return this.turn ? this.turn.round : this.arena ? this.arena.round : 1;
   }
 
   // ---- backdrop --------------------------------------------------------------
@@ -147,7 +166,7 @@ export class BattleScene extends Phaser.Scene {
   // ---- tank views ------------------------------------------------------------
 
   private makeTankView(t: Tank): void {
-    const skin = skinForClass(t.cls.id);
+    const skin = t.skin && atlasHas(`${t.skin}.r`) ? t.skin : skinForClass(t.cls.id);
     let hull: Phaser.GameObjects.Image;
     let pivotX: number;
     let pivotY: number;
@@ -360,6 +379,11 @@ export class BattleScene extends Phaser.Scene {
         }
         case 'kill': {
           const target = this.world.damageables().find((d) => d.id === e.target);
+          if (target && target.kind === 'hardpoint') {
+            this.fx.explosion(target.x, target.y, 26, weaponById('heavy'));
+            this.sfx.play('kill', 0.8);
+            this.hud.showBanner(`${(target as Hardpoint).name.toUpperCase()} DESTROYED`, 1200);
+          }
           if (target && target.kind === 'tank') {
             const tk = target as Tank;
             this.fx.explosion(tk.x, tk.y - tk.halfHeight, 34, weaponById('heavy'));
@@ -380,7 +404,7 @@ export class BattleScene extends Phaser.Scene {
           const tk = this.world.tanks[e.tank];
           this.sfx.play('crate');
           const label = e.crateKind === 'weapon' || e.crateKind === 'ammo' ? weaponById(e.payload || 'heavy').name : e.crateKind.toUpperCase();
-          const txt = this.add.text(tk.x, tk.y + HUD_H - tk.halfHeight * 2 - 24, `+ ${label}`, { fontFamily: 'monospace', fontSize: '8px', color: hex(PAL.glow), stroke: hex(PAL.uiInk), strokeThickness: 3 }).setOrigin(0.5).setDepth(80);
+          const txt = this.add.text(tk.x, tk.y + HUD_H - tk.halfHeight * 2 - 24, `+ ${label}`, { fontFamily: 'monospace', fontSize: '11px', color: hex(PAL.glow), stroke: hex(PAL.uiInk), strokeThickness: 3 }).setOrigin(0.5).setDepth(80);
           this.tweens.add({ targets: txt, y: txt.y - 20, alpha: 0, duration: 1100, onComplete: () => txt.destroy() });
           break;
         }
@@ -432,7 +456,7 @@ export class BattleScene extends Phaser.Scene {
     const prev = this.prevHeld.get(slot) ?? false;
     let charge = this.charge.get(slot) ?? 0;
     if (held) {
-      charge = Math.min(100, (prev ? charge : 25) + 75 * dt);
+      charge = Math.min(100, (prev ? charge : 35) + 70 * dt);
       this.world.setPower(tank, charge);
     } else if (prev) {
       it.fire = true;
@@ -460,6 +484,7 @@ export class BattleScene extends Phaser.Scene {
     for (const t of this.world.tanks) this.syncTankView(t, frameDt);
     this.syncProjectiles();
     this.syncCrates();
+    this.syncBosses();
     this.drawAimAssist();
     this.fx.update(frameDt);
     this.hud.update(this.world, this.currentForHud(), this.statusLine());
@@ -484,7 +509,32 @@ export class BattleScene extends Phaser.Scene {
     } else if (this.arena) {
       const intents = this.world.tanks.map((t, i) => (t.isBot ? this.bots.get(t.index)!.arenaIntent(this.world, t, dt) : this.arenaIntent(i, t, dt)));
       this.arena.update(intents, dt);
+    } else if (this.campaign) {
+      const intents = this.world.tanks.map((t, i) => (t.isBot ? this.bots.get(t.index)!.arenaIntent(this.world, t, dt) : this.arenaIntent(i, t, dt)));
+      this.campaign.update(intents, dt);
+      for (const msg of this.campaign.banners.splice(0)) this.hud.showBanner(msg, 1800);
     }
+  }
+
+  private syncBosses(): void {
+    if (!this.campaign) return;
+    this.campaign.bosses.forEach((boss, i) => {
+      const v = this.bossViews[i];
+      if (!v) return;
+      v.bars.clear();
+      const alive = this.campaign!.bossAlive(boss);
+      if (v.img) v.img.setVisible(alive).setTint(alive ? 0xffffff : 0x553333);
+      if (!alive) return;
+      for (const [id, hp] of boss.hardpoints) {
+        if (!hp.alive) continue;
+        const active = boss.active.has(id) || hp.core;
+        const w = 18;
+        const x = Math.round(hp.x - w / 2);
+        const y = Math.round(hp.y + HUD_H - hp.halfHeight - 6);
+        v.bars.fillStyle(PAL.uiInk, 0.85).fillRect(x - 1, y - 1, w + 2, 4);
+        v.bars.fillStyle(hp.core ? PAL.uiDanger : active ? PAL.fireHot : PAL.uiTextDim, 1).fillRect(x, y, Math.round(w * (hp.hp / hp.maxHp)), 2);
+      }
+    });
   }
 
   private currentForHud(): Tank | null {
@@ -498,6 +548,11 @@ export class BattleScene extends Phaser.Scene {
       const cls = this.world.mode.tankClasses ? ` · ${m.currentTank.cls.name}` : '';
       const fuel = this.world.mode.movement ? ` · fuel ${m.currentTank.fuel}` : '';
       return `Round ${m.round}/${this.setup.rounds} · ${this.world.mode.name}${cls}${fuel} · ${m.phase === 'aim' ? '←→ aim  ↑↓ power  SPACE fire  TAB weapon' : 'firing…'}`;
+    }
+    if (this.campaign) {
+      const c = this.campaign;
+      const li = LEVELS.findIndex((l) => l.id === c.level.id) + 1;
+      return `Campaign ${li}/${LEVELS.length} · ${c.level.name} · ${c.phase === 'brief' ? c.level.brief : '←→ drive  ↑↓ aim  hold FIRE to charge  TAB weapon'}`;
     }
     const a = this.arena!;
     if (a.phase === 'countdown') return `Round ${a.round}/${this.setup.rounds} · ARENA · starting in ${Math.ceil(a.countdown)}`;
@@ -530,6 +585,11 @@ export class BattleScene extends Phaser.Scene {
   // ---- phases -----------------------------------------------------------------------
 
   private checkPhase(dt: number): void {
+    if (this.campaign) {
+      const c = this.campaign;
+      if ((c.phase === 'won' || c.phase === 'lost') && c.overElapsed > 3 && !this.overlay.visible) this.showCampaignEnd(c.phase === 'won');
+      return;
+    }
     const phase = this.turn ? this.turn.phase : this.arena!.phase;
     if (phase === 'roundOver') {
       if (this.roundOverAt < 0) {
@@ -580,16 +640,35 @@ export class BattleScene extends Phaser.Scene {
     this.hud.showBanner(`ROUND ${this.roundNumber()}`, 1400);
   }
 
+  private showCampaignEnd(won: boolean): void {
+    const c = this.campaign!;
+    const next = c.nextLevelId();
+    if (won && next) {
+      try { localStorage.setItem('tankwars.campaign.level', next); } catch { /* private mode */ }
+    }
+    const bg = this.add.graphics().fillStyle(PAL.uiInk, 0.85).fillRect(0, 0, NATIVE_W, NATIVE_H);
+    const title = this.add.text(NATIVE_W / 2, 90, won ? (next ? `${c.level.name.toUpperCase()} CLEARED` : 'CAMPAIGN COMPLETE') : 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '22px', color: hex(won ? PAL.glow : PAL.uiDanger), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
+    const sub = this.add.text(NATIVE_W / 2, 120, won ? `+${c.level.reward} credits` : c.level.brief, { fontFamily: 'monospace', fontSize: '12px', color: hex(PAL.uiText) }).setOrigin(0.5);
+    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 30, won ? (next ? 'ENTER — next level     ESC — menu' : 'ENTER — menu') : 'ENTER — retry     ESC — menu', { fontFamily: 'monospace', fontSize: '11px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
+    this.overlay.add([bg, title, sub, hint]).setVisible(true);
+    this.paused = true;
+    this.input.keyboard!.once('keydown-ENTER', () => {
+      if (won && next) this.scene.start('battle', { ...this.setup, levelId: next, seed: (this.setup.seed * 31 + 7) & 0x7fffffff });
+      else if (won) this.scene.start('menu');
+      else this.scene.start('battle', { ...this.setup, seed: (this.setup.seed * 17 + 3) & 0x7fffffff });
+    });
+  }
+
   private showResults(): void {
     const winner = this.turn ? this.turn.matchWinner : this.arena!.matchWinner;
     const w = this.world.tanks[winner];
     const team = TEAM_COLOURS[w.colour % TEAM_COLOURS.length];
     const bg = this.add.graphics().fillStyle(PAL.uiInk, 0.85).fillRect(0, 0, NATIVE_W, NATIVE_H);
-    const title = this.add.text(NATIVE_W / 2, 70, `${w.name.toUpperCase()} WINS THE WAR`, { fontFamily: 'monospace', fontSize: '16px', color: hex(team.lit), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
+    const title = this.add.text(NATIVE_W / 2, 70, `${w.name.toUpperCase()} WINS THE WAR`, { fontFamily: 'monospace', fontSize: '22px', color: hex(team.lit), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
     const rows = [...this.world.tanks].sort((a, b) => b.roundsWon * 1000 + b.kills - (a.roundsWon * 1000 + a.kills));
     const lines = rows.map((t, i) => `${i + 1}. ${t.name.padEnd(12)}  rounds ${t.roundsWon}  kills ${t.kills}  credits ${t.credits}`).join('\n');
-    const table = this.add.text(NATIVE_W / 2, 130, lines, { fontFamily: 'monospace', fontSize: '9px', color: hex(PAL.uiText), align: 'left' }).setOrigin(0.5, 0);
-    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 30, 'ENTER — back to menu', { fontFamily: 'monospace', fontSize: '8px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
+    const table = this.add.text(NATIVE_W / 2, 130, lines, { fontFamily: 'monospace', fontSize: '12px', color: hex(PAL.uiText), align: 'left' }).setOrigin(0.5, 0);
+    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 30, 'ENTER — back to menu', { fontFamily: 'monospace', fontSize: '11px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
     this.overlay.add([bg, title, table, hint]).setVisible(true);
     this.paused = true;
     this.input.keyboard!.once('keydown-ENTER', () => this.scene.start('menu'));

@@ -7,13 +7,14 @@
  */
 import { TurnBasedMatch } from '../src/core/rules/turnBased';
 import { ArenaMatch } from '../src/core/rules/arena';
+import { CampaignLevel } from '../src/core/rules/campaign';
 import { BotController } from '../src/core/ai';
 import { SIM_DT } from '../src/core/physics';
 import { emptyIntent } from '../src/core/input';
 import type { GameModeId } from '../src/core/types';
 
-const W = 640;
-const H = 336;
+const W = 960;
+const H = 510;
 
 function check(cond: boolean, msg: string): void {
   if (!cond) {
@@ -93,6 +94,24 @@ function arena(seed: number): void {
   console.log(`arena          seed ${seed}: winner ${w.name} · ${(steps / 120).toFixed(0)} sim-s · crates ${crates} picked ${pickups} · kills ${m.world.tanks.map((t) => t.kills).join('/')}`);
 }
 
+function campaign(levelId: string, seed: number): void {
+  const players = [{ name: 'Hero', colour: 0, isBot: true, difficulty: 'deadeye' as const, tankClass: 'line' }];
+  const c = new CampaignLevel({ levelId, players, seed, width: W, height: H });
+  const bots = c.world.tanks.map(() => new BotController());
+  let steps = 0;
+  const maxSteps = 120 * 60 * 6;
+  while (c.phase !== 'won' && c.phase !== 'lost' && steps < maxSteps) {
+    const intents = c.world.tanks.map((t, i) => bots[i].arenaIntent(c.world, t, SIM_DT));
+    c.update(intents, SIM_DT);
+    c.world.drainEvents();
+    for (const t of c.world.tanks) check(Number.isFinite(t.x) && Number.isFinite(t.y), 'NaN in campaign');
+    steps++;
+  }
+  check(c.phase === 'won' || c.phase === 'lost', `campaign ${levelId}: did not resolve (phase ${c.phase})`);
+  const bossHp = c.bosses.map((b) => [...b.hardpoints.values()].map((h) => `${h.hp}`).join(',')).join(' | ');
+  console.log(`campaign ${levelId.padEnd(4)} seed ${seed}: ${c.phase} in ${(steps / 120).toFixed(0)} sim-s · hero hp ${c.world.tanks[0].hp}${bossHp ? ' · boss hp ' + bossHp : ''}`);
+}
+
 const t0 = Date.now();
 for (const seed of [1, 2, 3]) {
   turnBased('classic', seed);
@@ -100,4 +119,8 @@ for (const seed of [1, 2, 3]) {
   turnBased('advanced', seed);
   arena(seed);
 }
+campaign('l01', 1);
+campaign('l03', 2);
+campaign('b01', 3);
+campaign('b02', 4);
 console.log(`ok in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

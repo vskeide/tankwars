@@ -6,6 +6,10 @@ import type { TurnBasedMatch } from '../../core/rules/turnBased';
 import { NATIVE_H, NATIVE_W } from '../config';
 import { Sfx } from '../audio';
 
+/** Menu layout grid; the camera zooms it to fill the native canvas. */
+const LAYOUT_W = 640;
+const LAYOUT_H = 360;
+
 /**
  * Between-round armoury. Each human tank shops in turn; bots shop instantly.
  * ↑↓ select · ENTER buy · R repair · SPACE done.
@@ -26,8 +30,10 @@ export class ShopScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.add.graphics().fillStyle(PAL.uiInk, 0.92).fillRect(0, 0, NATIVE_W, NATIVE_H);
-    this.add.text(NATIVE_W / 2, 12, 'A R M O U R Y', { fontFamily: 'monospace', fontSize: '14px', color: hex(PAL.uiEdge) }).setOrigin(0.5);
+    this.cameras.main.setZoom(NATIVE_W / LAYOUT_W).centerOn(LAYOUT_W / 2, LAYOUT_H / 2);
+    void NATIVE_H;
+    this.add.graphics().fillStyle(PAL.uiInk, 0.92).fillRect(0, 0, LAYOUT_W, LAYOUT_H);
+    this.add.text(LAYOUT_W / 2, 12, 'A R M O U R Y', { fontFamily: 'monospace', fontSize: '14px', color: hex(PAL.uiEdge) }).setOrigin(0.5);
     for (const t of this.match.world.tanks) {
       if (t.isBot) botShop(t, this.match.mode.id, (tk, id) => this.match.buy(tk, id), (tk) => this.match.repairCost(tk), (tk) => this.match.repair(tk));
       else this.queue.push(t.index);
@@ -109,6 +115,6 @@ export class ShopScene extends Phaser.Scene {
       if (active) add(30, y + 10, `  ${w.blurb}   dmg ${w.damage}  radius ${w.radius}`, hex(PAL.uiTextDim), '7px');
       y += active ? 22 : 12;
     });
-    add(NATIVE_W / 2 - 150, NATIVE_H - 16, '↑↓ select   ENTER buy   R repair   SPACE done', hex(PAL.uiTextDim), '8px');
+    add(LAYOUT_W / 2 - 150, LAYOUT_H - 16, '↑↓ select   ENTER buy   R repair   SPACE done', hex(PAL.uiTextDim), '8px');
   }
 }
