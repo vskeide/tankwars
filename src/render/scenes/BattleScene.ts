@@ -74,6 +74,23 @@ export class BattleScene extends Phaser.Scene {
   private lastTurnKey = '';
   private roundOverAt = -1;
   private charge = new Map<number, number>(); // arena: power charge per slot
+  /** Seconds an aim key has been held, per control id — drives the slow-start ramp. */
+  private aimHold = new Map<string, number>();
+
+  /**
+   * Aim ramp: a tap moves about a degree; holding accelerates over half a second
+   * to full speed. Returns the multiplier to apply to the raw ±1 input.
+   */
+  private aimRamp(id: string, active: boolean, dt: number): number {
+    if (!active) {
+      this.aimHold.set(id, 0);
+      return 0;
+    }
+    const held = (this.aimHold.get(id) ?? 0) + dt;
+    this.aimHold.set(id, held);
+    const t = Math.min(1, held / 0.55);
+    return 0.22 + 0.78 * t * t;
+  }
   private prevHeld = new Map<number, boolean>();
   private paused = false;
   private lastRound = 0;
@@ -101,6 +118,7 @@ export class BattleScene extends Phaser.Scene {
     this.roundOverAt = -1;
     this.charge = new Map();
     this.prevHeld = new Map();
+    this.aimHold = new Map();
     this.paused = false;
     this.lastRound = 0;
     this.backdropKeys = null;
@@ -634,6 +652,8 @@ export class BattleScene extends Phaser.Scene {
       it.aimDelta += -it.moveX;
       it.moveX = 0;
     }
+    it.aimDelta *= this.aimRamp('t:aim', it.aimDelta !== 0, SIM_DT);
+    it.powerDelta *= this.aimRamp('t:pow', it.powerDelta !== 0, SIM_DT);
     it.fire = raw.fire;
     it.fireHeld = raw.fireHeld;
     it.cycleWeapon = raw.cycleWeapon;
@@ -649,7 +669,8 @@ export class BattleScene extends Phaser.Scene {
     const raw = humans <= 1 ? this.inputs.sharedIntent() : this.inputs.slotIntent(slot);
     const it = emptyIntent();
     it.moveX = raw.moveX;
-    it.aimDelta = raw.powerDelta; // up = raise barrel, whichever way the hull faces
+    // Up = raise barrel whichever way the hull faces; slow start, then accelerate.
+    it.aimDelta = raw.powerDelta * this.aimRamp(`a:${slot}`, raw.powerDelta !== 0, dt);
     void tank;
     it.cycleWeapon = raw.cycleWeapon;
     const held = raw.fireHeld;
