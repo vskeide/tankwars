@@ -16,7 +16,7 @@ import { Hud } from '../hud';
 import { Fx } from '../fx';
 import { Sfx } from '../audio';
 import { InputRouter } from '../inputs';
-import { atlasHas, ensureHull, skinForClass } from '../atlas';
+import { atlasHas, ensureHull, skinForClass, spriteScale } from '../atlas';
 import { ensureTankTextures, hullTextureKey, barrelTextureKey } from '../sprites';
 import type { BattleSetup } from '../setup';
 
@@ -129,7 +129,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.campaign) {
       for (const boss of this.campaign.bosses) {
         const key = atlasHas(`${boss.def.skin}.l`) ? `${boss.def.skin}.l` : atlasHas(`${boss.def.skin}.r`) ? `${boss.def.skin}.r` : null;
-        const img = key ? this.add.image(boss.x, boss.y + HUD_H, key).setOrigin(0.5, 1).setDepth(28).setScale(SPRITE_SCALE) : null;
+        const img = key ? this.add.image(boss.x, boss.y + HUD_H, key).setOrigin(0.5, 1).setDepth(28).setScale(spriteScale(key)) : null;
         if (img && key && key.endsWith('.r')) img.setFlipX(true);
         this.bossViews.push({ img, bars: this.add.graphics().setDepth(62) });
       }
@@ -174,15 +174,16 @@ export class BattleScene extends Phaser.Scene {
     let barrel: Phaser.GameObjects.Image;
     if (skin) {
       const info = ensureHull(this, skin, 'r', t.colour);
-      hull = this.add.image(0, 0, info.key).setOrigin(0.5, 1).setScale(SPRITE_SCALE);
-      pivotX = info.pivotX * SPRITE_SCALE;
-      pivotY = info.pivotY * SPRITE_SCALE;
+      const sc = spriteScale(`${skin}.r`);
+      hull = this.add.image(0, 0, info.key).setOrigin(0.5, 1).setScale(sc);
+      pivotX = info.pivotX * sc;
+      pivotY = info.pivotY * sc;
       // Procedural barrel matched to the class, tinted toward the sprite's colour.
       ensureTankTextures(this, t.cls, t.colour);
+      // The procedural barrel is authored at design scale; the hull sets the hitbox.
       barrel = this.add.image(0, 0, barrelTextureKey(t.cls, t.colour)).setOrigin(2 / (t.cls.barrel + 4), 0.5).setScale(SPRITE_SCALE);
-      // Hitbox from the sprite so shots register on what the player sees.
-      t.halfWidth = Math.round(info.width * 0.42 * SPRITE_SCALE);
-      t.halfHeight = Math.round(info.height * 0.42 * SPRITE_SCALE);
+      t.halfWidth = Math.round(info.width * 0.42 * sc);
+      t.halfHeight = Math.round(info.height * 0.42 * sc);
     } else {
       const meta = ensureTankTextures(this, t.cls, t.colour);
       hull = this.add.image(0, 0, hullTextureKey(t.cls, t.colour)).setOrigin(0.5, 1).setScale(SPRITE_SCALE);
@@ -223,7 +224,7 @@ export class BattleScene extends Phaser.Scene {
         const info = atlasHas(`${v.skin}.${f}`) ? ensureHull(this, v.skin, f, t.colour) : ensureHull(this, v.skin, 'r', t.colour);
         v.hull.setTexture(info.key);
         v.hull.setFlipX(!atlasHas(`${v.skin}.${f}`) && facing === -1);
-        v.pivotX = (atlasHas(`${v.skin}.${f}`) ? info.pivotX : -info.pivotX) * SPRITE_SCALE;
+        v.pivotX = (atlasHas(`${v.skin}.${f}`) ? info.pivotX : -info.pivotX) * spriteScale(`${v.skin}.r`);
       } else {
         v.hull.setFlipX(facing === -1);
         v.pivotX = Math.abs(v.pivotX) * (facing === 1 ? 1 : -1);
@@ -259,7 +260,7 @@ export class BattleScene extends Phaser.Scene {
       let v = this.projViews.get(p.id);
       if (!v) {
         const key = this.projectileTexture(p);
-        const sprite = this.add.image(0, 0, key).setDepth(36).setScale(SPRITE_SCALE);
+        const sprite = this.add.image(0, 0, key).setDepth(36).setScale(key === 'shell' ? SPRITE_SCALE : spriteScale(key));
         v = { sprite, trail: this.add.graphics().setDepth(34) };
         this.projViews.set(p.id, v);
       }
@@ -316,7 +317,7 @@ export class BattleScene extends Phaser.Scene {
       : c.crateKind === 'credits' && atlasHas('crate.metal') ? 'crate.metal'
       : atlasHas('crate.wood') ? 'crate.wood' : 'debris2';
     const img = this.add.image(0, 0, key);
-    const s = (20 * SPRITE_SCALE) / Math.max(img.width, img.height);
+    const s = (20 * spriteScale(key)) / Math.max(img.width, img.height);
     img.setScale(s);
     const chute = this.add.graphics().setName('chute');
     chute.fillStyle(PAL.uiText, 1).fillEllipse(0, -44, 60, 28);

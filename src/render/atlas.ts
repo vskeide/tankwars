@@ -12,21 +12,35 @@ interface Manifest {
 }
 
 const ids = new Set<string>();
+/** Display scale per sprite id — sheets differ in how large they drew things. */
+const scales = new Map<string, number>();
 
 export function atlasHas(id: string): boolean {
   return ids.has(id);
 }
 
+/** Integer scale a sprite should be drawn at on the native grid (default 2). */
+export function spriteScale(id: string): number {
+  return scales.get(id) ?? 2;
+}
+
 /** Queue every atlas file for the loader. Call in a scene's preload(). */
 export function queueAtlas(scene: Phaser.Scene, manifest: Manifest, names: Record<string, Record<string, string>>): void {
+  // Later sheets in the manifest override earlier ones for the same id.
+  const chosen = new Map<string, { sheet: string; index: string; scale: number }>();
   for (const sheet of manifest.sheets) {
     const map = names[sheet];
     if (!map) continue;
+    const scale = Number(map['_scale'] ?? 2) || 2;
     for (const [index, id] of Object.entries(map)) {
       if (index.startsWith('_')) continue;
-      scene.load.image(id, `atlas/${sheet}/${index}.png`);
-      ids.add(id);
+      chosen.set(id, { sheet, index, scale });
     }
+  }
+  for (const [id, c] of chosen) {
+    scene.load.image(id, `atlas/${c.sheet}/${c.index}.png`);
+    ids.add(id);
+    scales.set(id, c.scale);
   }
 }
 

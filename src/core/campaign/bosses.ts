@@ -3,9 +3,9 @@
  * several hardpoints (each a Damageable in the World) and a scripted set of
  * attacks. Destroying every `core` hardpoint kills the boss.
  *
- * Offsets are in native pixels relative to the boss anchor (bottom-centre of
- * the sprite standing on the ground). Tuned against the extracted sheet
- * sprites: behemoth.r is ~150×120, juggernaut.r ~150×110.
+ * Offsets are in design units (×UNIT in world pixels) relative to the boss
+ * anchor — bottom-centre of the sprite on the ground. Tuned against the
+ * tanks-v2 sheet: behemoth ~246×153 px drawn at 1×, juggernaut ~242×146.
  */
 export interface HardpointDef {
   id: string;

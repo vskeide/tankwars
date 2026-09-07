@@ -1,0 +1,15 @@
+{
+  "_comment": "Magenta-background tank sheet, right-facing only (mirrored in code). Drawn at 1x on the 1080p grid.",
+  "_scale": 1,
+  "00": "tank.scout.r",
+  "01": "tank.assault.r",
+  "02": "tank.heavy.r",
+  "03": "tank.artillery.r",
+  "04": "enemy.light.r",
+  "05": "enemy.medium.r",
+  "06": "enemy.heavy.r",
+  "07": "enemy.missile.r",
+  "08": "enemy.flame.r",
+  "09": "boss.behemoth.r",
+  "10": "boss.juggernaut.r"
+}

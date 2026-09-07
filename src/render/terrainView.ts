@@ -42,8 +42,10 @@ export class TerrainView {
     this.ctx = this.canvasTex.context;
     this.imgData = this.ctx.createImageData(terrain.width, terrain.height);
 
-    if (scene.textures.exists('terrain-tile')) {
-      const src = scene.textures.get('terrain-tile').getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+    // Prefer a sheet tile as the dirt texture; fall back to flat palette dither.
+    const tileKey = ['terrain-tile', 'tile.sand.1', 'tile.sand.0', 'tile.sand.2'].find((k) => scene.textures.exists(k));
+    if (tileKey) {
+      const src = scene.textures.get(tileKey).getSourceImage() as HTMLImageElement | HTMLCanvasElement;
       const c = document.createElement('canvas');
       c.width = src.width;
       c.height = src.height;
@@ -96,15 +98,15 @@ export class TerrainView {
           continue;
         }
         let c = MAT_RGB[m] ?? PAL.dirt;
-        if (pat && (m === MAT_DIRT || m === MAT_DIRT_DARK)) {
+        if (pat && (m === MAT_DIRT_LIT || m === MAT_DIRT || m === MAT_DIRT_DARK)) {
           // Sample the tile pattern, darkening it for the deeper layer.
-          const px = x % pat.width;
-          const py = y % pat.height;
+          const px = (x >> 1) % pat.width;
+          const py = (y >> 1) % pat.height;
           const pi = (py * pat.width + px) * 4;
-          const shade = m === MAT_DIRT ? 1 : 0.72;
-          d[o] = pat.data[pi] * shade;
-          d[o + 1] = pat.data[pi + 1] * shade;
-          d[o + 2] = pat.data[pi + 2] * shade;
+          const shade = m === MAT_DIRT_LIT ? 1.18 : m === MAT_DIRT ? 1 : 0.72;
+          d[o] = Math.min(255, pat.data[pi] * shade);
+          d[o + 1] = Math.min(255, pat.data[pi + 1] * shade);
+          d[o + 2] = Math.min(255, pat.data[pi + 2] * shade);
           d[o + 3] = 255;
           continue;
         }
