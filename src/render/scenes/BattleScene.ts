@@ -712,7 +712,11 @@ export class BattleScene extends Phaser.Scene {
     } else if (this.campaign) {
       const intents = this.world.tanks.map((t, i) => (t.isBot ? this.bots.get(t.index)!.arenaIntent(this.world, t, dt) : this.arenaIntent(i, t, dt)));
       this.campaign.update(intents, dt);
-      for (const msg of this.campaign.banners.splice(0)) this.hud.showBanner(msg, 1800);
+      for (const msg of this.campaign.banners.splice(0)) {
+        this.hud.showBanner(msg, 1800);
+        const boss = this.campaign.bosses.find((b) => b.def.name.toUpperCase() === msg);
+        if (boss) this.bossCard(boss.def.name, boss.index);
+      }
     }
   }
 
@@ -849,6 +853,20 @@ export class BattleScene extends Phaser.Scene {
     this.hud.showBanner(`ROUND ${this.roundNumber()}`, 1400);
   }
 
+  /** Portrait card for a boss reveal. */
+  private bossCard(name: string, index: number): void {
+    const pk = `portrait.boss${Math.min(3, index + 1)}`;
+    const y = 120;
+    const g = this.add.graphics().setDepth(130).setScrollFactor(0);
+    g.fillStyle(PAL.uiInk, 0.9).fillRoundedRect(NATIVE_W / 2 - 260, y, 520, 120, 6);
+    g.lineStyle(2, PAL.uiDanger, 1).strokeRoundedRect(NATIVE_W / 2 - 260, y, 520, 120, 6);
+    const items: Phaser.GameObjects.GameObject[] = [g];
+    if (atlasHas(pk)) items.push(this.add.image(NATIVE_W / 2 - 200, y + 60, pk).setDepth(131).setScrollFactor(0).setDisplaySize(100, 100));
+    items.push(this.add.text(NATIVE_W / 2 - 130, y + 30, name.toUpperCase(), { fontFamily: 'monospace', fontSize: '26px', color: hex(PAL.uiDanger) }).setDepth(131).setScrollFactor(0));
+    items.push(this.add.text(NATIVE_W / 2 - 130, y + 68, 'Destroy the core. Weapon mounts open as it takes damage.', { fontFamily: 'monospace', fontSize: '14px', color: hex(PAL.uiText) }).setDepth(131).setScrollFactor(0));
+    this.time.delayedCall(4200, () => items.forEach((i) => i.destroy()));
+  }
+
   private showCampaignEnd(won: boolean): void {
     const c = this.campaign!;
     const next = c.nextLevelId();
@@ -875,10 +893,24 @@ export class BattleScene extends Phaser.Scene {
     const bg = this.add.graphics().fillStyle(PAL.uiInk, 0.85).fillRect(0, 0, NATIVE_W, NATIVE_H);
     const title = this.add.text(NATIVE_W / 2, 200, `${w.name.toUpperCase()} WINS THE WAR`, { fontFamily: 'monospace', fontSize: '32px', color: hex(team.lit), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
     const rows = [...this.world.tanks].sort((a, b) => b.roundsWon * 1000 + b.kills - (a.roundsWon * 1000 + a.kills));
-    const lines = rows.map((t, i) => `${i + 1}. ${t.name.padEnd(12)}  rounds ${t.roundsWon}  kills ${t.kills}  credits ${t.credits}`).join('\n');
-    const table = this.add.text(NATIVE_W / 2, 300, lines, { fontFamily: 'monospace', fontSize: '18px', color: hex(PAL.uiText), align: 'left' }).setOrigin(0.5, 0);
+    const items: Phaser.GameObjects.GameObject[] = [bg, title];
+    const cardW = 300;
+    const x0 = NATIVE_W / 2 - (rows.length * cardW) / 2 + cardW / 2;
+    rows.forEach((t, i) => {
+      const cx = x0 + i * cardW;
+      const tc = TEAM_COLOURS[t.colour % TEAM_COLOURS.length];
+      const card = this.add.graphics();
+      card.fillStyle(PAL.uiPanel, 1).fillRoundedRect(cx - 130, 300, 260, 330, 6);
+      card.lineStyle(2, i === 0 ? PAL.uiEdge : tc.mid, 1).strokeRoundedRect(cx - 130, 300, 260, 330, 6);
+      items.push(card);
+      const pk = `portrait.p${(t.colour % 6) + 1}`;
+      if (atlasHas(pk)) items.push(this.add.image(cx, 380, pk).setDisplaySize(140, 140));
+      items.push(this.add.text(cx, 462, `${i + 1}. ${t.name}`, { fontFamily: 'monospace', fontSize: '20px', color: hex(tc.lit) }).setOrigin(0.5, 0));
+      items.push(this.add.text(cx, 496, `rounds ${t.roundsWon}\nkills ${t.kills}\ncredits ${t.credits}`, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText), align: 'center', lineSpacing: 6 }).setOrigin(0.5, 0));
+    });
     const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 60, 'ENTER — back to menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
-    this.overlay.add([bg, title, table, hint]).setVisible(true);
+    items.push(hint);
+    this.overlay.add(items).setVisible(true);
     this.paused = true;
     this.input.keyboard!.once('keydown-ENTER', () => this.scene.start('menu'));
   }
