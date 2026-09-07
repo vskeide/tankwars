@@ -14,11 +14,13 @@ arena for up to four players on one keyboard, and (coming) a campaign with bosse
 | **Modern** | Pick a hull (armour, shots, passive). Twelve weapons incl. MIRV, napalm, railgun. Wind every turn. Fall damage |
 | **Advanced** | Modern plus fuel: drive along the ridge. Shields, legged hulls, Earthmover. Fifteen weapons |
 | **Arena** | Real time. Everyone at once, hold fire to charge, crates parachute in |
+| **Campaign** | Twelve real-time missions across five biomes on a painted map; three bosses with hardpoints and phases. Progress saved in the browser |
 
 ## Controls
 
 Turn-based (hotseat, shared keyboard): `←→` aim · `↑↓` power · `A/D` drive (Advanced) ·
-`Space` fire · `Tab` weapon · `P` pause · `M` mute · `Esc` menu.
+`Space` fire · `Tab` weapon · `H` help · `P` pause · `M` mute · `F` fullscreen · `Esc` menu.
+Menu: keyboard or mouse (left click = next, right click = previous). Tank size is a menu setting.
 
 Arena and Campaign (real time): left/right drive, up/down aim, **hold fire to charge,
 release to shoot**, `Tab` weapon. Solo: any key set works (WASD or arrows, Space or Enter).
