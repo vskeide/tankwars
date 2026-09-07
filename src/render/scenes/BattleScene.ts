@@ -96,6 +96,14 @@ export class BattleScene extends Phaser.Scene {
   private prevHeld = new Map<number, boolean>();
   private paused = false;
   private lastRound = 0;
+  /**
+   * Killing-shot replay (turn-based). While a shot resolves we record every
+   * projectile position per sim step plus the explosions; if that shot ended
+   * the round we play it back in slow motion before the round-over card.
+   */
+  private rec: { frames: { x: number; y: number; key: string; rot: number }[][]; fx: { step: number; x: number; y: number; radius: number; weapon: import('../../core/weapons').Weapon }[]; killed: boolean } | null = null;
+  private replay: { step: number; acc: number; ghosts: Phaser.GameObjects.Image[]; trail: Phaser.GameObjects.Graphics; label: Phaser.GameObjects.Text; done: boolean } | null = null;
+  private replayShown = false;
   private backdropKeys: { sky: string; farMesas: string; nearMesas: string } | null = null;
   private bgImages: Phaser.GameObjects.Image[] = [];
 
@@ -123,6 +131,9 @@ export class BattleScene extends Phaser.Scene {
     this.aimHold = new Map();
     this.paused = false;
     this.lastRound = 0;
+    this.rec = null;
+    this.replay = null;
+    this.replayShown = false;
     this.backdropKeys = null;
     this.bgImages = [];
     this.sfx = new Sfx();
@@ -559,6 +570,7 @@ export class BattleScene extends Phaser.Scene {
           break;
         }
         case 'explode':
+          if (this.rec && this.turn?.phase === 'resolving') this.rec.fx.push({ step: this.rec.frames.length, x: e.at.x, y: e.at.y, radius: e.radius, weapon: e.weapon });
           this.fx.explosion(e.at.x, e.at.y, e.radius, e.weapon);
           this.sfx.play(e.radius > 50 ? 'explodeBig' : e.radius > 24 ? 'explode' : 'explodeSmall', 1, 0.85 + Math.random() * 0.3);
           break;
@@ -595,6 +607,7 @@ export class BattleScene extends Phaser.Scene {
           break;
         }
         case 'kill': {
+          if (this.rec && this.turn) this.rec.killed = true;
           const target = this.world.damageables().find((d) => d.id === e.target);
           if (target && target.kind === 'hardpoint') {
             this.fx.explosion(target.x, target.y, 26, weaponById('heavy'));
@@ -708,6 +721,13 @@ export class BattleScene extends Phaser.Scene {
 
   override update(_time: number, deltaMs: number): void {
     const frameDt = Math.min(0.1, deltaMs / 1000);
+    if (this.replay) {
+      this.advanceReplay(frameDt);
+      this.fx.update(frameDt);
+      if (this.inputs.isDown('Space') || this.inputs.isDown('Enter')) this.endReplay();
+      return;
+    }
+    if (this.turn && this.turn.phase === 'aim' && this.rec && !this.rec.killed) this.rec = null;
     if (!this.paused) {
       this.accumulator += frameDt;
       let steps = 0;
@@ -733,6 +753,7 @@ export class BattleScene extends Phaser.Scene {
   private simStep(dt: number): void {
     if (this.turn) {
       const m = this.turn;
+      if (m.phase === 'resolving') this.recordStep();
       let intent = emptyIntent();
       if (m.phase === 'aim') {
         const t = m.currentTank;
@@ -784,6 +805,79 @@ export class BattleScene extends Phaser.Scene {
         v.bars.fillStyle(hp.core ? PAL.uiDanger : active ? PAL.fireHot : PAL.uiTextDim, 1).fillRect(x, y, Math.round(w * (hp.hp / hp.maxHp)), 4);
       }
     });
+  }
+
+  /** Snapshot all live projectiles for the replay recording. */
+  private recordStep(): void {
+    if (!this.rec) this.rec = { frames: [], fx: [], killed: false };
+    const frame = this.world.projectiles.map((p) => ({ x: p.pos.x, y: p.pos.y, key: this.projectileTexture(p), rot: Math.atan2(p.vel.y, p.vel.x) }));
+    this.rec.frames.push(frame);
+  }
+
+  private startReplay(): void {
+    const rec = this.rec!;
+    // Trim to the interesting part: from launch to a little after the last explosion.
+    const lastFx = rec.fx.length ? rec.fx[rec.fx.length - 1].step : rec.frames.length - 1;
+    rec.frames.length = Math.min(rec.frames.length, lastFx + 36);
+    // Keep at most ~3 s of flight before the final impact.
+    const start = Math.max(0, lastFx - 360);
+    if (start > 0) {
+      rec.frames.splice(0, start);
+      for (const f of rec.fx) f.step -= start;
+    }
+    const label = this.add.text(0, 0, '◄◄ REPLAY  ·  SPACE to skip', { fontFamily: 'monospace', fontSize: '22px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 5 }).setOrigin(0.5).setDepth(140);
+    this.replay = { step: 0, acc: 0, ghosts: [], trail: this.add.graphics().setDepth(37), label, done: false };
+    this.paused = true;
+    this.cameras.main.setZoom(1.6);
+  }
+
+  private advanceReplay(frameDt: number): void {
+    const r = this.replay!;
+    const rec = this.rec!;
+    const speed = 0.4; // slow motion
+    r.acc += frameDt * speed;
+    while (r.acc >= SIM_DT && r.step < rec.frames.length) {
+      r.acc -= SIM_DT;
+      r.step++;
+      for (const f of rec.fx) if (f.step === r.step) this.fx.explosion(f.x, f.y, f.radius, f.weapon);
+    }
+    const frame = rec.frames[Math.min(r.step, rec.frames.length - 1)] ?? [];
+    // Ghost sprites for each projectile in this frame.
+    while (r.ghosts.length < frame.length) r.ghosts.push(this.add.image(0, 0, 'shell').setDepth(36).setScale(SPRITE_SCALE));
+    r.ghosts.forEach((g, i) => {
+      const p = frame[i];
+      if (!p) { g.setVisible(false); return; }
+      g.setVisible(true).setTexture(p.key).setPosition(p.x, p.y + HUD_H).setRotation(p.rot);
+    });
+    // Trail so far.
+    r.trail.clear();
+    for (let s = Math.max(0, r.step - 220); s < r.step; s++) {
+      for (const p of rec.frames[s] ?? []) r.trail.fillStyle(PAL.glow, 0.25 + (0.6 * (s - (r.step - 220))) / 220).fillRect(Math.round(p.x), Math.round(p.y + HUD_H), 2, 2);
+    }
+    // Camera follows the first projectile, eases toward the last impact after it is gone.
+    const focus = frame[0] ?? (rec.fx.length ? { x: rec.fx[rec.fx.length - 1].x, y: rec.fx[rec.fx.length - 1].y } : null);
+    if (focus) {
+      const cam = this.cameras.main;
+      const tx = Math.max(NATIVE_W / (2 * cam.zoom), Math.min(NATIVE_W - NATIVE_W / (2 * cam.zoom), focus.x));
+      const ty = Math.max(NATIVE_H / (2 * cam.zoom), Math.min(NATIVE_H - NATIVE_H / (2 * cam.zoom), focus.y + HUD_H));
+      cam.centerOn(cam.midPoint.x + (tx - cam.midPoint.x) * 0.08, cam.midPoint.y + (ty - cam.midPoint.y) * 0.08);
+    }
+    // Label pinned to the top of the zoomed view.
+    const cam = this.cameras.main;
+    r.label.setPosition(cam.midPoint.x, cam.midPoint.y - NATIVE_H / (2 * cam.zoom) + 60 / cam.zoom).setScale(1 / cam.zoom);
+    if (r.step >= rec.frames.length) this.endReplay();
+  }
+
+  private endReplay(): void {
+    const r = this.replay;
+    if (!r) return;
+    r.ghosts.forEach((g) => g.destroy());
+    r.trail.destroy();
+    r.label.destroy();
+    this.replay = null;
+    this.replayShown = true;
+    this.paused = false;
+    this.cameras.main.setZoom(1).centerOn(NATIVE_W / 2, NATIVE_H / 2);
   }
 
   private currentForHud(): Tank | null {
@@ -844,6 +938,10 @@ export class BattleScene extends Phaser.Scene {
     }
     const phase = this.turn ? this.turn.phase : this.arena!.phase;
     if (phase === 'roundOver') {
+      if (this.turn && this.rec && this.rec.killed && !this.replayShown && this.rec.frames.length > 30) {
+        this.startReplay();
+        return;
+      }
       if (this.roundOverAt < 0) {
         this.roundOverAt = 0;
         const w = this.turn ? this.turn.lastRoundWinner : this.arena!.lastRoundWinner;
@@ -880,6 +978,8 @@ export class BattleScene extends Phaser.Scene {
   private onNewRound(): void {
     if (this.roundNumber() === this.lastRound) return;
     this.lastRound = this.roundNumber();
+    this.rec = null;
+    this.replayShown = false;
     this.buildBackdrop();
     this.terrainView.setTerrain(this.world.terrain, this.tileForBiome());
     this.placeDecor();

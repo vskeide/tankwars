@@ -28,7 +28,7 @@ Items marked ★ were asked for by Vebjørn; the rest are my suggestions.
 | 14 | **Damage states**: soot/crack overlay at <50 % and <25 % HP, smoke already there | S | Procedural overlay on the hull texture |
 | 15 | **Wind gusts** in real-time modes (wind drifts smoothly instead of stepping) and a visible wind sock/particles | S | HUD gauge already animates |
 | 16 | **Shot camera**: brief follow-cam on long shots in turn-based (zoom out to show the whole arc, then punch in on impact) | M | Camera already supports zoom; needs a small state machine |
-| 17 | **Replay of the killing shot** at round end, slow-motion | M | Core is deterministic; record the inputs of the last turn and re-simulate |
+| 17 | ✔ **Replay of the killing shot** at round end, slow-motion | M | Core is deterministic; record the inputs of the last turn and re-simulate |
 | 18 | **Weather/time of day** per round: night rounds with tracer glow, sandstorm rounds with reduced visibility and stronger wind | M | Backdrop tint + particle layer + wind range |
 | 19 | **More weapons** to round out the 15: guided missile (steer while in flight), teleporter, dirt bomb (buries a target), shield generator drop | M | Behaviours in `world.ts`; sprites needed |
 | 20 | **Bot personalities**: aggressive / cautious / crate-hunter, chosen per bot; taunt lines | S | Profiles in `ai.ts` |
