@@ -81,7 +81,7 @@ export function sliceBiome(scene: Phaser.Scene, imageKey: string): BiomeLayers |
     return key;
   };
 
-  const layers: BiomeLayers = { sky: cut('sky', skyB, false), far: cut('far', farB, true), near: cut('near', nearB, true) };
+  const layers: BiomeLayers = { sky: cut('sky', skyB, true), far: cut('far', farB, true), near: cut('near', nearB, true) };
   cache.set(imageKey, layers);
   return layers;
 }

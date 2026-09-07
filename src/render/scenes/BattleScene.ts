@@ -189,9 +189,15 @@ export class BattleScene extends Phaser.Scene {
 
   // ---- backdrop --------------------------------------------------------------
 
-  private tileForBiome(): string {
-    const m: Record<string, string> = { dunes: 'tile.sand', mesas: 'tile.clay', crags: 'tile.bedrock', basin: 'tile.salt', spires: 'tile.ash' };
-    return m[this.world.terrain.style.id] ?? 'tile.sand';
+  private tileForBiome(): { surface: string; deep: string } {
+    const m: Record<string, { surface: string; deep: string }> = {
+      dunes: { surface: 'tile.sand', deep: 'tile.earth' },
+      mesas: { surface: 'tile.clay', deep: 'tile.earth' },
+      crags: { surface: 'tile.earth', deep: 'tile.ash' },
+      basin: { surface: 'tile.salt', deep: 'tile.earth' },
+      spires: { surface: 'tile.ash', deep: 'tile.scorched' },
+    };
+    return m[this.world.terrain.style.id] ?? m.dunes;
   }
 
   private decor: { img: Phaser.GameObjects.Image; x: number; y: number }[] = [];
@@ -243,7 +249,7 @@ export class BattleScene extends Phaser.Scene {
       const sky = this.add.image(NATIVE_W / 2, 0, layers.sky).setOrigin(0.5, 0).setDepth(0).setScale(2);
       this.bgImages.push(sky);
       // Anything the sky does not cover above the horizon: the procedural sky.
-      if (sky.displayHeight < horizon) this.bgImages.push(this.add.image(0, 0, this.backdropKeys.sky).setOrigin(0).setDepth(-1));
+      this.bgImages.push(this.add.image(0, 0, this.backdropKeys.sky).setOrigin(0).setDepth(-1));
       for (const [key, depth] of [[layers.far, 1], [layers.near, 2]] as [string, number][]) {
         const tex = this.textures.get(key).getSourceImage() as { width: number; height: number };
         const n = Math.ceil(NATIVE_W / tex.width) + 1;
@@ -444,6 +450,9 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private projectileTexture(p: Projectile): string {
+    // Dedicated sprite per weapon from the projectiles sheet; bomblets for submunitions.
+    if (p.depth > 0 && atlasHas('proj.bomblet')) return 'proj.bomblet';
+    if (atlasHas(`proj.${p.weapon.id}`)) return `proj.${p.weapon.id}`;
     const b = p.weapon.behaviour;
     if (b === 'mirv' && atlasHas('proj.missile')) return 'proj.missile';
     if (b === 'railgun' && atlasHas('proj.plasma')) return 'proj.plasma';

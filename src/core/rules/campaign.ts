@@ -16,6 +16,7 @@ import type { Intent } from '../input';
 import type { PlayerSetup } from './turnBased';
 import { LEVELS, ENEMY_CLASS, levelById, type LevelDef } from '../campaign/levels';
 import { bossById, type BossDef, type HardpointDef } from '../campaign/bosses';
+import { BOSS_MOUNTS } from '../campaign/mounts';
 
 export interface CampaignConfig {
   levelId: string;
@@ -144,8 +145,35 @@ export class CampaignLevel {
     this.world.terrain.carveCircle(x, surf - 60 * UNIT, bw * 0.62, false);
     const y = this.world.terrain.surfaceY(x);
     const state: BossState = { def, index: this.bosses.length, x, y, hardpoints: new Map(), active: new Set(), timers: new Map(), phaseIndex: -1, maxHp: 0, facing: -1 };
+    // Weapon hardpoints snap to the cyan mount markers read off the body sprite
+    // (sprite pixels, drawn at 1×); core and drive train derive from the body size.
+    const mounts = BOSS_MOUNTS[def.id];
+    let mountIdx = 0;
     for (const h of def.hardpoints) {
-      const hp = this.world.addHardpoint({ bossIndex: state.index, name: h.name, dx: h.dx, dy: h.dy, core: h.core, x: x + h.dx * UNIT * state.facing, y: y + h.dy * UNIT, halfWidth: h.halfWidth * UNIT, halfHeight: h.halfHeight * UNIT, hp: h.hp, maxHp: h.hp });
+      let dx = h.dx * UNIT;
+      let dy = h.dy * UNIT;
+      let hw = h.halfWidth * UNIT;
+      let hh = h.halfHeight * UNIT;
+      if (mounts) {
+        if (h.attack && mountIdx < mounts.mounts.length) {
+          const m = mounts.mounts[mountIdx++];
+          dx = m.dx;
+          dy = m.dy;
+          hw = 22;
+          hh = 16;
+        } else if (h.core) {
+          dx = Math.round(mounts.width * 0.02);
+          dy = -Math.round(mounts.height * 0.5);
+          hw = 20;
+          hh = 16;
+        } else {
+          dx = 0;
+          dy = -Math.round(mounts.height * 0.14);
+          hw = Math.round(mounts.width * 0.45);
+          hh = Math.round(mounts.height * 0.14);
+        }
+      }
+      const hp = this.world.addHardpoint({ bossIndex: state.index, name: h.name, dx, dy, core: h.core, x: x + dx * state.facing, y: y + dy, halfWidth: hw, halfHeight: hh, hp: h.hp, maxHp: h.hp });
       state.hardpoints.set(h.id, hp);
       state.maxHp += h.hp;
     }

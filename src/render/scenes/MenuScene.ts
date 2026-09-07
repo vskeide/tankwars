@@ -71,7 +71,8 @@ export class MenuScene extends Phaser.Scene {
     if (this.textures.exists('title')) {
       const t = this.add.image(LAYOUT_W / 2, LAYOUT_H / 2, 'title').setDepth(2);
       t.setScale(Math.max(LAYOUT_W / t.width, LAYOUT_H / t.height));
-      this.add.graphics().fillStyle(PAL.uiInk, 0.55).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
+      this.add.graphics().fillStyle(PAL.uiInk, 0.35).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
+      this.add.graphics().fillStyle(PAL.uiInk, 0.82).fillRoundedRect(30, 50, 460, 200, 4).lineStyle(1, PAL.uiEdge, 0.8).strokeRoundedRect(30, 50, 460, 200, 4).setDepth(3);
     } else {
       this.add.graphics().fillStyle(PAL.uiInk, 0.72).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
       if (atlasHas('boss.behemoth.r')) {
