@@ -1,0 +1,10 @@
+{
+  "_comment": "",
+  "_scale": 1,
+  "00": "boss.behemoth.body",
+  "01": "boss.behemoth.cannon",
+  "02": "boss.behemoth.gun",
+  "03": "boss.behemoth.mortar",
+  "04": "boss.behemoth.gatling",
+  "05": "boss.behemoth.damaged"
+}

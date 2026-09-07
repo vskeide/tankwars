@@ -1,0 +1,10 @@
+{
+  "_comment": "Player turrets without barrel, mantlet stub on the right.",
+  "_scale": 1,
+  "00": "turret.line",
+  "01": "turret.scout",
+  "02": "turret.bulwark",
+  "03": "turret.battery",
+  "04": "turret.aegis",
+  "05": "turret.strider"
+}

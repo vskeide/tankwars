@@ -1,0 +1,10 @@
+{
+  "_comment": "Player hulls without turret, facing right, #00FF00 accents remapped to team colour.",
+  "_scale": 1,
+  "00": "hull.line",
+  "01": "hull.scout",
+  "02": "hull.bulwark",
+  "03": "hull.battery",
+  "04": "hull.aegis",
+  "05": "hull.strider"
+}

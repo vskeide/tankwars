@@ -6,7 +6,7 @@
 import Phaser from 'phaser';
 import { PAL } from '../core/palette';
 import type { Weapon } from '../core/weapons';
-import { atlasHas } from './atlas';
+import { atlasHas, spriteScale } from './atlas';
 
 export class Fx {
   private readonly particles: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -15,6 +15,29 @@ export class Fx {
   private readonly sparks: Phaser.GameObjects.Particles.ParticleEmitter;
   private readonly flashes: Phaser.GameObjects.Graphics;
   private flashAlpha = 0;
+
+  /**
+   * Play a frame sequence `prefix.0 … prefix.N` from the atlas at a world point.
+   * Returns null when the sheet is missing so callers can fall back.
+   */
+  anim(prefix: string, x: number, y: number, opts: { scale?: number; frameRate?: number; rotation?: number; originX?: number; originY?: number; depth?: number; loopMs?: number; flipX?: boolean } = {}): Phaser.GameObjects.Sprite | null {
+    if (!atlasHas(`${prefix}.0`)) return null;
+    const key = `anim:${prefix}`;
+    if (!this.scene.anims.exists(key)) {
+      const frames: { key: string }[] = [];
+      for (let i = 0; i < 16 && atlasHas(`${prefix}.${i}`); i++) frames.push({ key: `${prefix}.${i}` });
+      this.scene.anims.create({ key, frames, frameRate: opts.frameRate ?? 16, repeat: opts.loopMs ? -1 : 0 });
+    }
+    const spr = this.scene.add.sprite(x, this.y(y), `${prefix}.0`).setDepth(opts.depth ?? 42);
+    spr.setScale(opts.scale ?? spriteScale(`${prefix}.0`));
+    spr.setOrigin(opts.originX ?? 0.5, opts.originY ?? 0.5);
+    if (opts.rotation !== undefined) spr.setRotation(opts.rotation);
+    if (opts.flipX) spr.setFlipX(true);
+    spr.play(key);
+    if (opts.loopMs) this.scene.time.delayedCall(opts.loopMs, () => spr.destroy());
+    else spr.once('animationcomplete', () => spr.destroy());
+    return spr;
+  }
 
   constructor(private scene: Phaser.Scene, private worldY: number) {
     // Fire particles
@@ -65,22 +88,14 @@ export class Fx {
   explosion(x: number, y: number, radius: number, weapon: Weapon): void {
     const yy = this.y(y);
     const big = radius > 50;
-    const wanted = big ? 'large' : radius > 28 ? 'medium' : 'small';
-    // Until the dedicated explosion sheet exists, one frame set serves all sizes.
-    const size = atlasHas(`fx.explosion.${wanted}.0`) ? wanted : 'medium';
-    if (atlasHas(`fx.explosion.${size}.0`)) {
-      const spr = this.scene.add.sprite(x, yy, `fx.explosion.${size}.0`).setDepth(42);
-      const frames = 10;
-      const key = `anim-explosion-${size}`;
-      if (!this.scene.anims.exists(key)) {
-        this.scene.anims.create({
-          key,
-          frames: Array.from({ length: frames }, (_, i) => ({ key: `fx.explosion.${size}.${i}` })).filter((f) => atlasHas(f.key)),
-          frameRate: 18,
-        });
-      }
-      spr.setScale(Math.max(1, (radius * 2.4) / Math.max(spr.width, 1)));
-      spr.play(key).once('animationcomplete', () => spr.destroy());
+    void big;
+    const size = weapon.behaviour === 'nuke' ? 'nuke' : radius > 110 ? 'large' : radius > 60 ? 'medium' : 'small';
+    const size2 = atlasHas(`fx.explosion.${size}.0`) ? size : 'medium';
+    if (atlasHas(`fx.explosion.${size2}.0`)) {
+      // Frame sheets are small; pick an integer scale so the blast roughly spans the radius.
+      const probe = this.scene.textures.get(`fx.explosion.${size2}.3`).getSourceImage() as { width: number };
+      const scale = Math.max(2, Math.min(6, Math.round((radius * 2.2) / Math.max(probe.width, 1))));
+      this.anim(`fx.explosion.${size2}`, x, y, { scale, frameRate: 16, originY: size2 === 'nuke' ? 0.9 : 0.5, depth: 42 });
     } else {
       // Fallback: a couple of expanding palette rings.
       const g = this.scene.add.graphics().setDepth(42);
@@ -113,6 +128,10 @@ export class Fx {
   muzzleFlash(x: number, y: number, angleDeg: number): void {
     const yy = this.y(y);
     const a = (angleDeg * Math.PI) / 180;
+    if (this.anim('fx.flash', x, y, { scale: 2, frameRate: 30, rotation: -a, originX: 0.12, originY: 0.5, depth: 44 })) {
+      this.shake(0.004, 60);
+      return;
+    }
     this.sparks.setAngle(-angleDeg);
     this.sparks.explode(14, x + Math.cos(a) * 4, yy - Math.sin(a) * 4);
     this.sparks.setAngle(0);
@@ -125,6 +144,7 @@ export class Fx {
 
   burn(x: number, y: number): void {
     const yy = this.y(y);
+    if (this.anim('fx.burn', x, y, { scale: 2, frameRate: 12, originY: 1, loopMs: 4500, depth: 40 })) return;
     const e = this.scene.add.particles(x, yy, 'dot2', {
       lifespan: { min: 300, max: 700 },
       speed: { min: 10, max: 50 },
@@ -141,11 +161,27 @@ export class Fx {
   }
 
   split(x: number, y: number): void {
-    this.sparks.explode(10, x, this.y(y));
+    if (!this.anim('fx.sparks', x, y, { scale: 2, frameRate: 20 })) this.sparks.explode(10, x, this.y(y));
   }
 
   landDust(x: number, y: number, strength: number): void {
+    if (this.anim('fx.dust', x, y, { scale: Math.round(1 + strength * 0.5) + 1, frameRate: 14, originY: 1 })) return;
     this.smoke.explode(Math.round(3 + strength * 6), x, this.y(y));
+  }
+
+  /** Shield ripple on a tank. */
+  shieldHit(x: number, y: number): void {
+    this.anim('fx.shield', x, y, { scale: 2, frameRate: 18, depth: 45 });
+  }
+
+  /** Steel-on-steel impact (direct hit with no explosion frame yet). */
+  impact(x: number, y: number): void {
+    this.anim('fx.impact', x, y, { scale: 2, frameRate: 22, depth: 44 });
+  }
+
+  /** Lingering smoke plume (destroyed hull). */
+  smokePlume(x: number, y: number): void {
+    this.anim('fx.smoke', x, y, { scale: 3, frameRate: 6, originY: 1, depth: 39 });
   }
 
   damageNumber(x: number, y: number, amount: number, colour: number = PAL.uiText): void {

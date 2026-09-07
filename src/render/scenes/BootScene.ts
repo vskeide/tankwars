@@ -46,6 +46,9 @@ export class BootScene extends Phaser.Scene {
       }
       queueAtlas(this, manifest, names);
     }
+    this.load.image('title', 'art/title.png');
+    for (const b of ['dunes', 'mesas', 'crags', 'basin', 'spires']) this.load.image(`bg-${b}`, `art/bg-${b}.png`);
+    this.load.image('campaign-map', 'art/campaign-map.png');
     this.load.once('complete', () => {
       ensureCommonTextures(this);
       this.scene.start('menu');

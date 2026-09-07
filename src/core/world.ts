@@ -60,6 +60,14 @@ export interface Tank extends Damageable {
   movedThisTurn: boolean;
   /** Seconds until this tank may fire again (arena mode). */
   cooldown: number;
+  /**
+   * Barrel geometry supplied by the renderer once it knows the sprite: pivot
+   * offset from (x, y) for a right-facing tank, and barrel length. 0 = use the
+   * class defaults. Pure geometry, so the core stays renderer-agnostic.
+   */
+  pivotDX: number;
+  pivotDY: number;
+  barrelLen: number;
 
   credits: number;
   /** weapon id -> shots remaining (-1 = unlimited). */
@@ -235,6 +243,9 @@ export class World {
       fuel: setup.cls.fuel,
       movedThisTurn: false,
       cooldown: 0,
+      pivotDX: 0,
+      pivotDY: 0,
+      barrelLen: 0,
       credits: setup.credits,
       ammo,
       selectedWeapon: defaultWeaponId(),
@@ -297,6 +308,11 @@ export class World {
   /** Where a shot leaves the barrel, in world pixels. */
   muzzle(t: Tank): Vec2 {
     const a = (t.angle * Math.PI) / 180;
+    if (t.barrelLen > 0) {
+      const px = t.x + t.pivotDX * t.facing;
+      const py = t.y + t.pivotDY;
+      return { x: px + Math.cos(a) * t.barrelLen, y: py - Math.sin(a) * t.barrelLen };
+    }
     const pivotY = t.y - t.halfHeight * 2 - 2;
     const len = t.cls.barrel * UNIT;
     return { x: t.x + Math.cos(a) * len, y: pivotY - Math.sin(a) * len };

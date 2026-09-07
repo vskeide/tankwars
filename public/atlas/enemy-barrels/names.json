@@ -1,0 +1,9 @@
+{
+  "_comment": "",
+  "_scale": 1,
+  "00": "ebarrel.light",
+  "01": "ebarrel.medium",
+  "02": "ebarrel.heavy",
+  "03": "ebarrel.missile",
+  "04": "ebarrel.flame"
+}

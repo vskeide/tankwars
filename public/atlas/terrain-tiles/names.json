@@ -1,0 +1,22 @@
+{
+  "_comment": "",
+  "_scale": 1,
+  "00": "tile.sandlight",
+  "01": "tile.sand",
+  "02": "tile.earth",
+  "03": "tile.bedrock",
+  "04": "tile.scorched",
+  "05": "tile.salt",
+  "06": "tile.ash",
+  "07": "tile.clay",
+  "08": "decor.grass0",
+  "09": "decor.grass1",
+  "10": "decor.grass2",
+  "11": "decor.rock0",
+  "12": "decor.rock1",
+  "13": "decor.rock2",
+  "14": "decor.bones",
+  "15": "decor.cactus",
+  "16": "decor.cactus2",
+  "17": "decor.shrub"
+}

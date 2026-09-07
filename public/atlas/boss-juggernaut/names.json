@@ -1,0 +1,9 @@
+{
+  "_comment": "",
+  "_scale": 1,
+  "00": "boss.juggernaut.body",
+  "01": "boss.juggernaut.quad",
+  "02": "boss.juggernaut.rockets",
+  "03": "boss.juggernaut.drill",
+  "04": "boss.juggernaut.damaged"
+}

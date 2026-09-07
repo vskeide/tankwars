@@ -1,0 +1,18 @@
+{
+  "_comment": "",
+  "_scale": 1,
+  "00": "proj.shell",
+  "01": "proj.heavy",
+  "02": "proj.sabot",
+  "03": "proj.cluster",
+  "04": "proj.bomblet",
+  "05": "proj.roller",
+  "06": "proj.digger",
+  "07": "proj.napalm",
+  "08": "proj.mirv",
+  "09": "proj.railgun",
+  "10": "proj.airburst",
+  "11": "proj.earthmover",
+  "12": "proj.thermobaric",
+  "13": "proj.nuke"
+}

@@ -46,14 +46,14 @@ export const GAME_MODES: readonly GameMode[] = [
     name: 'Classic',
     tagline: 'The 1991 rules, repainted.',
     description:
-      'One hull, one shot, one wind reading per round. Angle and power are all you have. ' +
+      'One hull, one shot, and the wind shifts every turn. Angle and power are all you have. ' +
       'Six weapons, a shop between rounds, dirt that falls when you blow the ground out ' +
       'from under it. If you played the original, you already know this game.',
     tankClasses: false,
     movement: false,
     shop: true,
     perks: false,
-    windPerTurn: false,
+    windPerTurn: true,
     windMax: 55,
     fallDamage: false,
     terrainCollapse: true,

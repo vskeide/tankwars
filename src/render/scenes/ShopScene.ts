@@ -31,6 +31,10 @@ export class ShopScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setZoom(NATIVE_W / LAYOUT_W).centerOn(LAYOUT_W / 2, LAYOUT_H / 2);
+    // Text is laid out on the 640 grid but rasterised at native resolution.
+    this.events.on(Phaser.GameObjects.Events.ADDED_TO_SCENE, (obj: Phaser.GameObjects.GameObject) => {
+      if (obj instanceof Phaser.GameObjects.Text) obj.setResolution(NATIVE_W / LAYOUT_W);
+    });
     void NATIVE_H;
     this.add.graphics().fillStyle(PAL.uiInk, 0.92).fillRect(0, 0, LAYOUT_W, LAYOUT_H);
     this.add.text(LAYOUT_W / 2, 12, 'A R M O U R Y', { fontFamily: 'monospace', fontSize: '14px', color: hex(PAL.uiEdge) }).setOrigin(0.5);

@@ -1,0 +1,12 @@
+{
+  "_comment": "Barrels pointing right, breech on the left.",
+  "_scale": 1,
+  "00": "barrel.light",
+  "01": "barrel.standard",
+  "02": "barrel.heavy",
+  "03": "barrel.artillery",
+  "04": "barrel.railgun",
+  "05": "barrel.missile",
+  "06": "barrel.plasma",
+  "07": "barrel.mortar"
+}

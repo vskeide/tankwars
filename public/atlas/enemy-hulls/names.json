@@ -1,0 +1,9 @@
+{
+  "_comment": "",
+  "_scale": 1,
+  "00": "ehull.light",
+  "01": "ehull.medium",
+  "02": "ehull.heavy",
+  "03": "ehull.missile",
+  "04": "ehull.flame"
+}

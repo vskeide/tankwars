@@ -59,15 +59,24 @@ export class MenuScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setZoom(NATIVE_W / LAYOUT_W).centerOn(LAYOUT_W / 2, LAYOUT_H / 2);
+    // Text is laid out on the 640 grid but rasterised at native resolution.
+    this.events.on(Phaser.GameObjects.Events.ADDED_TO_SCENE, (obj: Phaser.GameObjects.GameObject) => {
+      if (obj instanceof Phaser.GameObjects.Text) obj.setResolution(NATIVE_W / LAYOUT_W);
+    });
     void NATIVE_H;
     const bd = buildBackdrop(this, LAYOUT_W, LAYOUT_H, LAYOUT_H * 0.78, 1234);
     this.add.image(0, 0, bd.sky).setOrigin(0).setDepth(0);
     this.add.image(-40, 0, bd.farMesas).setOrigin(0).setDepth(1);
     this.add.image(-80, 0, bd.nearMesas).setOrigin(0).setDepth(2);
-    this.add.graphics().fillStyle(PAL.uiInk, 0.72).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
-
-    if (atlasHas('boss.behemoth.r')) {
-      this.add.image(LAYOUT_W - 90, LAYOUT_H - 8, 'boss.behemoth.r').setOrigin(0.5, 1).setDepth(2).setAlpha(0.55).setScale(1.1);
+    if (this.textures.exists('title')) {
+      const t = this.add.image(LAYOUT_W / 2, LAYOUT_H / 2, 'title').setDepth(2);
+      t.setScale(Math.max(LAYOUT_W / t.width, LAYOUT_H / t.height));
+      this.add.graphics().fillStyle(PAL.uiInk, 0.55).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
+    } else {
+      this.add.graphics().fillStyle(PAL.uiInk, 0.72).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
+      if (atlasHas('boss.behemoth.r')) {
+        this.add.image(LAYOUT_W - 90, LAYOUT_H - 8, 'boss.behemoth.r').setOrigin(0.5, 1).setDepth(2).setAlpha(0.55).setScale(1.1);
+      }
     }
 
     this.add.text(LAYOUT_W / 2, 18, 'T A N K W A R S', { fontFamily: 'monospace', fontSize: '22px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 5 }).setOrigin(0.5).setDepth(10);

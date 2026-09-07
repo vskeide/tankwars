@@ -107,7 +107,7 @@ def estimate_block(arr: np.ndarray, mask: np.ndarray) -> float:
     return float(peak)
 
 
-def crispen(sprite: np.ndarray, alpha: np.ndarray, block: float) -> Image.Image:
+def crispen(sprite: np.ndarray, alpha: np.ndarray, block: float, key_is_magenta: bool = False) -> Image.Image:
     """Resample to one output pixel per block, sampling at block centres, with a small
     majority vote against JPEG haze."""
     h, w, _ = sprite.shape
@@ -124,12 +124,45 @@ def crispen(sprite: np.ndarray, alpha: np.ndarray, block: float) -> Image.Image:
             if a.mean() < 0.5:
                 continue
             block_px = sprite[y0:y1, x0:x1].reshape(-1, 3)
-            out[oy, ox, :3] = np.median(block_px, axis=0)
+            med = np.median(block_px, axis=0)
+            # Despill: anti-aliased edges against a magenta key come out pink.
+            # Drop pixels that are mostly key colour, and pull the key out of the rest.
+            if key_is_magenta:
+                spill = min(med[0], med[2]) - med[1]
+                if spill > 60:
+                    continue
+                if spill > 0:
+                    med[0] -= spill * 0.5
+                    med[2] -= spill * 0.5
+            out[oy, ox, :3] = np.clip(med, 0, 255)
             out[oy, ox, 3] = 255
     return Image.fromarray(out, "RGBA")
 
 
-def process(path: Path) -> None:
+def order_by_rows(boxes, rows: int | None):
+    """Sort sprites into reading order. With `rows` given, y-centres are clustered into
+    exactly that many rows by cutting at the largest gaps; otherwise a gap larger than
+    half the median sprite height starts a new row."""
+    if not boxes:
+        return boxes
+    items = sorted(boxes, key=lambda b: (b[1] + b[3]) / 2)
+    centres = [(b[1] + b[3]) / 2 for b in items]
+    gaps = [(centres[i + 1] - centres[i], i) for i in range(len(centres) - 1)]
+    if rows and rows > 1:
+        cuts = sorted(i for _, i in sorted(gaps, reverse=True)[: rows - 1])
+    else:
+        med_h = sorted(b[3] - b[1] for b in items)[len(items) // 2]
+        cuts = [i for g, i in gaps if g > med_h * 0.5]
+    out = []
+    start = 0
+    for c in cuts + [len(items) - 1]:
+        row = sorted(items[start : c + 1], key=lambda b: b[0])
+        out.extend(row)
+        start = c + 1
+    return out
+
+
+def process(path: Path, rows: int | None = None) -> None:
     img = Image.open(path).convert("RGB")
     arr = np.asarray(img)
     bg = background_colour(arr)
@@ -146,7 +179,7 @@ def process(path: Path) -> None:
             mask[y0 : y1 + 1, x0 : x1 + 1] = False
     # Pass 2: group generously so a sprite split by a thin dark gap stays whole.
     blobs = components(dilate(mask, 3))
-    block = estimate_block(arr, mask)
+    block = FORCE_BLOCK.get(path.stem) or estimate_block(arr, mask)
 
     h, w = mask.shape
     kept = []
@@ -158,8 +191,8 @@ def process(path: Path) -> None:
             continue
         kept.append((x0, y0, x1, y1))
 
-    # Reading order: rows by y-centre, then x.
-    kept.sort(key=lambda b: ((b[1] + b[3]) // 2 // 90, b[0]))
+    # Reading order: cluster y-centres into rows (split at the largest gaps), then x.
+    kept = order_by_rows(kept, rows)
 
     out_dir = OUT / path.stem
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -173,7 +206,7 @@ def process(path: Path) -> None:
         x1p, y1p = min(w - 1, x1 + pad), min(h - 1, y1 + pad)
         sprite = arr[y0p : y1p + 1, x0p : x1p + 1]
         alpha = foreground_mask(sprite, bg, tol * 0.7)
-        crisp = crispen(sprite, alpha, block)
+        crisp = crispen(sprite, alpha, block, key_is_magenta=not dark_bg)
         name = f"{i:02d}"
         crisp.save(out_dir / f"{name}.png")
         meta["sprites"].append({"index": i, "box": [int(x0p), int(y0p), int(x1p), int(y1p)], "size": list(crisp.size)})
@@ -185,13 +218,30 @@ def process(path: Path) -> None:
         print(f"  {s['index']:02d}  box=({b[0]},{b[1]})-({b[2]},{b[3]})  crisp={s['size'][0]}x{s['size'][1]}")
 
 
+# Sheets whose sprites are animation frames laid out in rows: name -> row count.
+ROW_SHEETS = {"fx-explosions": 4, "fx-misc": 8, "terrain-tiles": 2, "ui": 3}
+# Not sprite sheets: whole images used as-is (title, map) or sliced by hand (backdrops).
+SKIP = {"title", "campaign-map", "bg-all", "bg-dunes", "bg-mesas", "bg-crags", "bg-basin", "bg-spires"}
+# Override the detected block size so related sheets come out at a consistent in-game
+# size: a player hull should be ~110 px wide, its turret ~50 px, its barrel ~55 px long.
+# Sampling the original at a coarser grid beats rescaling the crisp output later.
+FORCE_BLOCK = {
+    "player-hulls": 2.9, "player-turrets": 5.7, "barrels": 4.1,
+    "enemy-hulls": 3.2, "enemy-turrets": 7.2, "enemy-barrels": 6.9,
+    "projectiles": 4.8, "pickups": 3.5,
+}
+
+
 def main(argv: list[str]) -> None:
     files = [Path(a) for a in argv[1:]] or sorted(RAW.glob("*.png"))
     if not files:
         print("no sheets in", RAW)
         return
     for f in files:
-        process(f)
+        if f.stem in SKIP:
+            print(f"{f.name}: skipped (whole-image asset)")
+            continue
+        process(f, ROW_SHEETS.get(f.stem))
 
 
 if __name__ == "__main__":

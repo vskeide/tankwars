@@ -1,0 +1,9 @@
+{
+  "_comment": "",
+  "_scale": 1,
+  "00": "eturret.light",
+  "01": "eturret.medium",
+  "02": "eturret.heavy",
+  "03": "eturret.missile",
+  "04": "eturret.flame"
+}

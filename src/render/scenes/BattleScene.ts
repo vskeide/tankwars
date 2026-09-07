@@ -17,15 +17,23 @@ import { Fx } from '../fx';
 import { Sfx } from '../audio';
 import { InputRouter } from '../inputs';
 import { atlasHas, ensureHull, skinForClass, spriteScale } from '../atlas';
+import { CLASS_BARREL, ENEMY_PARTS, ensureTeamTexture, hasParts, partMetrics } from '../parts';
+import { sliceBiome } from '../biomeBackdrop';
 import { ensureTankTextures, hullTextureKey, barrelTextureKey } from '../sprites';
 import type { BattleSetup } from '../setup';
 
 interface TankView {
   hull: Phaser.GameObjects.Image;
+  turret: Phaser.GameObjects.Image | null;
   barrel: Phaser.GameObjects.Image;
+  /** Barrel pivot relative to the tank origin, for a right-facing tank. */
   pivotX: number;
   pivotY: number;
+  /** Turret anchor relative to the tank origin (parts mode). */
+  turretX: number;
+  turretY: number;
   skin: string;
+  parts: boolean;
   facing: 1 | -1;
   recoil: number;
   smoke?: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -115,7 +123,8 @@ export class BattleScene extends Phaser.Scene {
     this.lastRound = this.roundNumber();
 
     this.buildBackdrop();
-    this.terrainView = new TerrainView(this, this.world.terrain, 0, HUD_H);
+    this.terrainView = new TerrainView(this, this.world.terrain, 0, HUD_H, this.tileForBiome());
+    this.placeDecor();
     this.aimGfx = this.add.graphics().setDepth(35);
     this.fx = new Fx(this, HUD_H);
     this.hud = new Hud(this, HUD_H);
@@ -128,9 +137,10 @@ export class BattleScene extends Phaser.Scene {
     }
     if (this.campaign) {
       for (const boss of this.campaign.bosses) {
-        const key = atlasHas(`${boss.def.skin}.l`) ? `${boss.def.skin}.l` : atlasHas(`${boss.def.skin}.r`) ? `${boss.def.skin}.r` : null;
+        const key = atlasHas(`${boss.def.skin}.body`) ? `${boss.def.skin}.body` : atlasHas(`${boss.def.skin}.l`) ? `${boss.def.skin}.l` : atlasHas(`${boss.def.skin}.r`) ? `${boss.def.skin}.r` : null;
         const img = key ? this.add.image(boss.x, boss.y + HUD_H, key).setOrigin(0.5, 1).setDepth(28).setScale(spriteScale(key)) : null;
-        if (img && key && key.endsWith('.r')) img.setFlipX(true);
+        // Sheet bodies face right; bosses face the players on their left.
+        if (img && key && !key.endsWith('.l')) img.setFlipX(true);
         this.bossViews.push({ img, bars: this.add.graphics().setDepth(62) });
       }
     }
@@ -179,6 +189,46 @@ export class BattleScene extends Phaser.Scene {
 
   // ---- backdrop --------------------------------------------------------------
 
+  private tileForBiome(): string {
+    const m: Record<string, string> = { dunes: 'tile.sand', mesas: 'tile.clay', crags: 'tile.bedrock', basin: 'tile.salt', spires: 'tile.ash' };
+    return m[this.world.terrain.style.id] ?? 'tile.sand';
+  }
+
+  private decor: { img: Phaser.GameObjects.Image; x: number; y: number }[] = [];
+
+  /** Scatter surface decorations for the biome; they vanish when the ground under them goes. */
+  private placeDecor(): void {
+    this.decor.forEach((d) => d.img.destroy());
+    this.decor = [];
+    const byBiome: Record<string, string[]> = {
+      dunes: ['decor.grass0', 'decor.grass1', 'decor.grass2', 'decor.cactus', 'decor.cactus2', 'decor.rock0', 'decor.shrub'],
+      mesas: ['decor.rock0', 'decor.rock1', 'decor.rock2', 'decor.shrub', 'decor.grass2'],
+      crags: ['decor.rock1', 'decor.rock2', 'decor.bones'],
+      basin: ['decor.bones', 'decor.rock0', 'decor.shrub'],
+      spires: ['decor.rock2', 'decor.bones', 'decor.shrub'],
+    };
+    const pool = (byBiome[this.world.terrain.style.id] ?? byBiome.dunes).filter((k) => atlasHas(k));
+    if (!pool.length) return;
+    const n = 14;
+    for (let i = 0; i < n; i++) {
+      const x = Math.round(60 + Math.random() * (this.world.width - 120));
+      if (this.world.tanks.some((t) => Math.abs(t.x - x) < 70)) continue;
+      const y = this.world.terrain.surfaceY(x);
+      const slope = Math.abs(this.world.terrain.surfaceAngle(x, 6));
+      if (slope > 0.5) continue;
+      const key = pool[Math.floor(Math.random() * pool.length)];
+      const img = this.add.image(x, y + HUD_H + 1, key).setOrigin(0.5, 1).setDepth(11).setScale(1).setFlipX(Math.random() < 0.5);
+      this.decor.push({ img, x, y });
+    }
+  }
+
+  private updateDecor(): void {
+    for (const d of this.decor) {
+      if (!d.img.active) continue;
+      if (this.world.terrain.surfaceY(d.x) > d.y + 6) d.img.destroy();
+    }
+  }
+
   private buildBackdrop(): void {
     this.bgImages.forEach((i) => i.destroy());
     this.bgImages = [];
@@ -186,14 +236,31 @@ export class BattleScene extends Phaser.Scene {
     const horizon = Math.floor(HUD_H + TERRAIN_H * 0.62);
     // (backdrop is generated at full native size each round; ~2M px, a few ms)
     this.backdropKeys = buildBackdrop(this, NATIVE_W, NATIVE_H, horizon, seed);
-    this.bgImages.push(this.add.image(0, 0, this.backdropKeys.sky).setOrigin(0).setDepth(0));
-    this.bgImages.push(this.add.image(-80, 0, this.backdropKeys.farMesas).setOrigin(0).setDepth(1));
-    this.bgImages.push(this.add.image(-180, 0, this.backdropKeys.nearMesas).setOrigin(0).setDepth(2));
+    const layers = sliceBiome(this, `bg-${this.world.terrain.style.id}`);
+    if (layers) {
+      // Sky at integer 2× fills from the top down past the horizon; the far and near
+      // bands sit on the horizon at 1× and repeat mirrored so no seam shows.
+      const sky = this.add.image(NATIVE_W / 2, 0, layers.sky).setOrigin(0.5, 0).setDepth(0).setScale(2);
+      this.bgImages.push(sky);
+      // Anything the sky does not cover above the horizon: the procedural sky.
+      if (sky.displayHeight < horizon) this.bgImages.push(this.add.image(0, 0, this.backdropKeys.sky).setOrigin(0).setDepth(-1));
+      for (const [key, depth] of [[layers.far, 1], [layers.near, 2]] as [string, number][]) {
+        const tex = this.textures.get(key).getSourceImage() as { width: number; height: number };
+        const n = Math.ceil(NATIVE_W / tex.width) + 1;
+        for (let k = 0; k < n; k++) {
+          this.bgImages.push(this.add.image(k * tex.width, horizon + 2, key).setOrigin(0, 1).setDepth(depth).setFlipX(k % 2 === 1));
+        }
+      }
+    } else {
+      this.bgImages.push(this.add.image(-80, 0, this.backdropKeys.farMesas).setOrigin(0).setDepth(1));
+      this.bgImages.push(this.add.image(-180, 0, this.backdropKeys.nearMesas).setOrigin(0).setDepth(2));
+    }
   }
 
   // ---- tank views ------------------------------------------------------------
 
   private makeTankView(t: Tank): void {
+    if (hasParts(t.cls.id, t.skin)) return this.makePartsView(t);
     const skin = t.skin && atlasHas(`${t.skin}.r`) ? t.skin : skinForClass(t.cls.id);
     let hull: Phaser.GameObjects.Image;
     let pivotX: number;
@@ -230,13 +297,55 @@ export class BattleScene extends Phaser.Scene {
       frequency: 120,
       emitting: false,
     }).setDepth(31);
-    this.tankViews.set(t.index, { hull, barrel, pivotX, pivotY, skin, facing: 1, recoil: 0, smoke });
+    this.tankViews.set(t.index, { hull, turret: null, barrel, pivotX, pivotY, turretX: 0, turretY: 0, skin, parts: false, facing: 1, recoil: 0, smoke });
+  }
+
+  /** Hull + turret + barrel from the separated sheets, accents recoloured to the team. */
+  private makePartsView(t: Tank): void {
+    const enemy = ENEMY_PARTS[t.skin];
+    const ids = enemy ?? { hull: `hull.${t.cls.id}`, turret: `turret.${t.cls.id}`, barrel: CLASS_BARREL[t.cls.id] ?? 'barrel.standard' };
+    const hullKey = enemy ? ids.hull : ensureTeamTexture(this, ids.hull, t.colour);
+    const turretKey = enemy ? ids.turret : ensureTeamTexture(this, ids.turret, t.colour);
+    const barrelKey = enemy ? ids.barrel : ensureTeamTexture(this, ids.barrel, t.colour);
+    const hm = partMetrics(this, ids.hull);
+    const tm = partMetrics(this, ids.turret);
+    const bm = partMetrics(this, ids.barrel);
+
+    const hull = this.add.image(0, 0, hullKey).setOrigin(0.5, 1).setDepth(30);
+    const turret = this.add.image(0, 0, turretKey).setOrigin(0.5, 1).setDepth(31);
+    const barrel = this.add.image(0, 0, barrelKey).setOrigin(0.1, 0.5).setDepth(29);
+
+    // Turret sits on the deck, sunk a few pixels; the barrel pivots at the mantlet
+    // on the turret's front (right) side.
+    const turretX = Math.round((hm.massX - hm.width / 2) * 0.4);
+    const turretY = -(hm.height - hm.topAtCentre) + 4;
+    const pivotX = turretX + Math.round(tm.width * 0.28);
+    const pivotY = turretY - Math.round(tm.height * 0.5);
+
+    t.halfWidth = Math.round(hm.width * 0.45);
+    t.halfHeight = Math.round((hm.height + tm.height * 0.7) / 2);
+    t.pivotDX = pivotX;
+    t.pivotDY = pivotY;
+    t.barrelLen = Math.round(bm.width * 0.88);
+
+    const smoke = this.add.particles(0, 0, 'dot2', {
+      lifespan: { min: 600, max: 1400 },
+      speed: { min: 4, max: 14 },
+      angle: { min: 260, max: 280 },
+      scale: { start: 1.6, end: 4 },
+      alpha: { start: 0.7, end: 0 },
+      tint: [PAL.smoke, PAL.smokeLight],
+      frequency: 120,
+      emitting: false,
+    }).setDepth(32);
+    this.tankViews.set(t.index, { hull, turret, barrel, pivotX, pivotY, turretX, turretY, skin: t.skin, parts: true, facing: 1, recoil: 0, smoke });
   }
 
   private syncTankView(t: Tank, dt: number): void {
     const v = this.tankViews.get(t.index)!;
     if (!t.alive) {
       v.hull.setVisible(false);
+      v.turret?.setVisible(false);
       v.barrel.setVisible(false);
       v.smoke?.stop();
       return;
@@ -244,6 +353,31 @@ export class BattleScene extends Phaser.Scene {
     v.hull.setVisible(true);
     v.barrel.setVisible(true);
     const facing = t.facing;
+    if (v.parts) {
+      v.turret!.setVisible(true);
+      const rot = t.tilt * 0.6;
+      const ca = Math.cos(rot);
+      const sa = Math.sin(rot);
+      const x = Math.round(t.x);
+      const y = Math.round(t.y + HUD_H);
+      const local = (lx: number, ly: number) => ({ x: x + (lx * facing) * ca - ly * sa, y: y + (lx * facing) * sa + ly * ca });
+      v.hull.setPosition(x, y).setRotation(rot).setFlipX(facing === -1);
+      const tp = local(v.turretX, v.turretY);
+      v.turret!.setPosition(Math.round(tp.x), Math.round(tp.y)).setRotation(rot).setFlipX(facing === -1);
+      const pp = local(v.pivotX, v.pivotY);
+      v.recoil = Math.max(0, v.recoil - dt * 36);
+      const a = (-t.angle * Math.PI) / 180;
+      v.barrel.setPosition(pp.x - Math.cos(a) * v.recoil, pp.y - Math.sin(a) * v.recoil).setRotation(a).setFlipY(facing === -1);
+      if (v.smoke) {
+        v.smoke.setPosition(x, y - t.halfHeight * 2);
+        if (t.hp < t.maxHp * 0.4 && !v.smoke.emitting) v.smoke.start();
+        else if (t.hp >= t.maxHp * 0.4 && v.smoke.emitting) v.smoke.stop();
+      }
+      const tint = t.hp < t.maxHp * 0.25 ? 0xbbaaaa : 0xffffff;
+      v.hull.setTint(tint);
+      v.turret!.setTint(tint);
+      return;
+    }
     if (facing !== v.facing) {
       v.facing = facing;
       if (v.skin) {
@@ -325,8 +459,10 @@ export class BattleScene extends Phaser.Scene {
       let v = this.crateViews.get(c.id);
       if (!v) v = this.makeCrateView(c);
       v.setPosition(Math.round(c.x), Math.round(c.y + HUD_H));
-      const chute = v.getByName('chute') as Phaser.GameObjects.Graphics | null;
+      const chute = v.getByName('chute') as Phaser.GameObjects.GameObject & { setVisible(v: boolean): unknown } | null;
+      const box = v.getByName('box') as Phaser.GameObjects.Image | null;
       if (chute) chute.setVisible(!c.landed);
+      if (box && atlasHas('fx.chute.0')) box.setVisible(c.landed);
     }
     for (const [id, v] of this.crateViews) {
       if (!seen.has(id)) {
@@ -337,15 +473,25 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private makeCrateView(c: Crate): Phaser.GameObjects.Container {
-    const key =
-      c.crateKind === 'repair' && atlasHas('powerup.repair') ? 'powerup.repair'
-      : c.crateKind === 'shield' && atlasHas('powerup.shield') ? 'powerup.shield'
-      : c.crateKind === 'ammo' && atlasHas('crate.ammo') ? 'crate.ammo'
-      : c.crateKind === 'credits' && atlasHas('crate.metal') ? 'crate.metal'
-      : atlasHas('crate.wood') ? 'crate.wood' : 'debris2';
-    const img = this.add.image(0, 0, key);
-    const s = (20 * spriteScale(key)) / Math.max(img.width, img.height);
-    img.setScale(s);
+    const want = `crate.${c.crateKind}`;
+    const key = atlasHas(want) ? want : atlasHas('crate.wood') ? 'crate.wood' : 'debris2';
+    const img = this.add.image(0, 0, key).setName('box').setOrigin(0.5, 0.5);
+    img.setScale(spriteScale(key));
+    // Sheet chute animation (parachute + crate) while falling; else a drawn canopy.
+    if (atlasHas('fx.chute.0')) {
+      const animKey = 'anim:fx.chute';
+      if (!this.anims.exists(animKey)) {
+        const frames: { key: string }[] = [];
+        for (let i = 0; i < 12 && atlasHas(`fx.chute.${i}`); i++) frames.push({ key: `fx.chute.${i}` });
+        this.anims.create({ key: animKey, frames, frameRate: 8, repeat: -1 });
+      }
+      const chuteSpr = this.add.sprite(0, 0, 'fx.chute.0').setName('chute').setOrigin(0.5, 1).setScale(2);
+      chuteSpr.play(animKey);
+      chuteSpr.setY(img.displayHeight / 2);
+      const cont = this.add.container(0, 0, [chuteSpr, img]).setDepth(33);
+      this.crateViews.set(c.id, cont);
+      return cont;
+    }
     const chute = this.add.graphics().setName('chute');
     chute.fillStyle(PAL.uiText, 1).fillEllipse(0, -44, 60, 28);
     chute.fillStyle(PAL.uiDanger, 1).fillRect(-16, -52, 12, 12);
@@ -366,7 +512,7 @@ export class BattleScene extends Phaser.Scene {
         case 'launch': {
           this.fx.muzzleFlash(e.from.x, e.from.y, e.angle);
           const v = this.tankViews.get(e.shooter);
-          if (v) v.recoil = 4 * SPRITE_SCALE;
+          if (v) v.recoil = v.parts ? 10 : 4 * SPRITE_SCALE;
           this.sfx.play(e.weapon.behaviour === 'railgun' ? 'railgun' : e.weapon.damage > 45 ? 'fireHeavy' : 'fire', 1, 0.9 + Math.random() * 0.2);
           break;
         }
@@ -396,6 +542,7 @@ export class BattleScene extends Phaser.Scene {
             const y = tk.y - tk.halfHeight * 2;
             if (e.shieldAbsorbed > 0) {
               this.fx.damageNumber(tk.x, y, e.shieldAbsorbed, 0x54c8ff);
+              this.fx.shieldHit(tk.x, tk.y - tk.halfHeight);
               this.sfx.play('shield');
             }
             if (e.amount > 0) {
@@ -415,6 +562,7 @@ export class BattleScene extends Phaser.Scene {
           if (target && target.kind === 'tank') {
             const tk = target as Tank;
             this.fx.explosion(tk.x, tk.y - tk.halfHeight, 34, weaponById('heavy'));
+            this.fx.smokePlume(tk.x, tk.y);
             this.sfx.play('kill');
             const by = this.world.tanks[e.by];
             this.hud.showBanner(by && by.index !== tk.index ? `${by.name.toUpperCase()} DESTROYED ${tk.name.toUpperCase()}` : `${tk.name.toUpperCase()} DESTROYED`, 1500);
@@ -513,6 +661,7 @@ export class BattleScene extends Phaser.Scene {
     this.syncProjectiles();
     this.syncCrates();
     this.syncBosses();
+    this.updateDecor();
     this.drawAimAssist();
     this.fx.update(frameDt);
     this.hud.update(this.world, this.currentForHud(), this.statusLine());
@@ -551,7 +700,13 @@ export class BattleScene extends Phaser.Scene {
       if (!v) return;
       v.bars.clear();
       const alive = this.campaign!.bossAlive(boss);
-      if (v.img) v.img.setVisible(alive).setTint(alive ? 0xffffff : 0x553333);
+      if (v.img) {
+        v.img.setVisible(alive).setTint(alive ? 0xffffff : 0x553333);
+        let hp = 0, max = 0;
+        for (const h of boss.hardpoints.values()) { hp += h.hp; max += h.maxHp; }
+        const dmgKey = `${boss.def.skin}.damaged`;
+        if (atlasHas(dmgKey) && hp < max * 0.5 && v.img.texture.key !== dmgKey) v.img.setTexture(dmgKey);
+      }
       if (!alive) return;
       for (const [id, hp] of boss.hardpoints) {
         if (!hp.alive) continue;
@@ -657,7 +812,8 @@ export class BattleScene extends Phaser.Scene {
     if (this.roundNumber() === this.lastRound) return;
     this.lastRound = this.roundNumber();
     this.buildBackdrop();
-    this.terrainView.setTerrain(this.world.terrain);
+    this.terrainView.setTerrain(this.world.terrain, this.tileForBiome());
+    this.placeDecor();
     for (const [, v] of this.projViews) {
       v.sprite.destroy();
       v.trail.destroy();

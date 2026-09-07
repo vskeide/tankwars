@@ -1,1 +1,22 @@
-{ "sheets": ["sheet-misc", "tanks-v2"] }
+{
+  "sheets": [
+    "sheet-misc",
+    "tanks-v2",
+    "player-hulls",
+    "player-turrets",
+    "barrels",
+    "enemy-hulls",
+    "enemy-turrets",
+    "enemy-barrels",
+    "boss-behemoth",
+    "boss-juggernaut",
+    "boss-hive",
+    "projectiles",
+    "fx-explosions",
+    "fx-misc",
+    "pickups",
+    "terrain-tiles",
+    "ui",
+    "portraits"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "_comment": "",
+  "_scale": 1,
+  "00": "crate.wood",
+  "01": "crate.metal",
+  "02": "crate.ammo",
+  "03": "crate.repair",
+  "04": "crate.shield",
+  "05": "crate.credits",
+  "06": "crate.weapon",
+  "07": "hazard.mine",
+  "08": "barrel.fuel",
+  "09": "barrel.explosive",
+  "10": "parachute"
+}

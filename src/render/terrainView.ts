@@ -19,6 +19,13 @@ import {
 } from '../core/terrain';
 import { dither } from './pixel';
 
+/** Cheap 2-D integer hash → [0, 1). */
+function hash2(x: number, y: number): number {
+  let h = (x * 374761393 + y * 668265263) | 0;
+  h = ((h ^ (h >>> 13)) * 1274126177) | 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
 const MAT_RGB: Record<number, number> = {
   [MAT_DIRT_LIT]: PAL.dirtLit,
   [MAT_DIRT]: PAL.dirt,
@@ -36,23 +43,13 @@ export class TerrainView {
   private readonly imgData: ImageData;
   private pattern: ImageData | null = null;
 
-  constructor(scene: Phaser.Scene, private terrain: Terrain, x: number, y: number) {
+  constructor(private scene: Phaser.Scene, private terrain: Terrain, x: number, y: number, tileKey?: string) {
     this.key = `terrain-${Phaser.Math.RND.uuid()}`;
     this.canvasTex = scene.textures.createCanvas(this.key, terrain.width, terrain.height)!;
     this.ctx = this.canvasTex.context;
     this.imgData = this.ctx.createImageData(terrain.width, terrain.height);
 
-    // Prefer a sheet tile as the dirt texture; fall back to flat palette dither.
-    const tileKey = ['terrain-tile', 'tile.sand.1', 'tile.sand.0', 'tile.sand.2'].find((k) => scene.textures.exists(k));
-    if (tileKey) {
-      const src = scene.textures.get(tileKey).getSourceImage() as HTMLImageElement | HTMLCanvasElement;
-      const c = document.createElement('canvas');
-      c.width = src.width;
-      c.height = src.height;
-      const cctx = c.getContext('2d')!;
-      cctx.drawImage(src, 0, 0);
-      this.pattern = cctx.getImageData(0, 0, c.width, c.height);
-    }
+    this.setTile(tileKey);
 
     this.rasterise(0, 0, terrain.width - 1, terrain.height - 1);
     this.ctx.putImageData(this.imgData, 0, 0);
@@ -61,9 +58,43 @@ export class TerrainView {
     terrain.clearDirty();
   }
 
+  /** Choose the dirt texture: a sheet tile if present, else flat palette dither. */
+  setTile(tileKey?: string): void {
+    const key = [tileKey ?? '', 'tile.sand', 'terrain-tile', 'tile.sand.1'].find((k) => k && this.scene.textures.exists(k));
+    this.pattern = null;
+    if (!key) return;
+    const src = this.scene.textures.get(key).getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+    // Extracted tiles carry a transparent/keyed border and are not truly seamless:
+    // keep the opaque interior only, then build a 2×2 mirrored super-tile so every
+    // edge meets its own reflection.
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    const cctx = c.getContext('2d', { willReadFrequently: true })!;
+    cctx.drawImage(src, 0, 0);
+    const raw = cctx.getImageData(0, 0, c.width, c.height);
+    let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+    for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+      if (raw.data[(y * c.width + x) * 4 + 3] > 200) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    }
+    const inset = 3;
+    x0 += inset; y0 += inset; x1 -= inset; y1 -= inset;
+    const tw = Math.max(4, x1 - x0 + 1), th = Math.max(4, y1 - y0 + 1);
+    const sup = new ImageData(tw * 2, th * 2);
+    for (let y = 0; y < th * 2; y++) for (let x = 0; x < tw * 2; x++) {
+      const sx = x < tw ? x : tw * 2 - 1 - x;
+      const sy = y < th ? y : th * 2 - 1 - y;
+      const si = ((y0 + sy) * c.width + (x0 + sx)) * 4;
+      const di = (y * tw * 2 + x) * 4;
+      sup.data[di] = raw.data[si]; sup.data[di + 1] = raw.data[si + 1]; sup.data[di + 2] = raw.data[si + 2]; sup.data[di + 3] = 255;
+    }
+    this.pattern = sup;
+  }
+
   /** Swap in a new Terrain (new round). */
-  setTerrain(terrain: Terrain): void {
+  setTerrain(terrain: Terrain, tileKey?: string): void {
     this.terrain = terrain;
+    if (tileKey) this.setTile(tileKey);
     this.rasterise(0, 0, terrain.width - 1, terrain.height - 1);
     this.ctx.putImageData(this.imgData, 0, 0);
     this.canvasTex.refresh();
@@ -98,15 +129,23 @@ export class TerrainView {
           continue;
         }
         let c = MAT_RGB[m] ?? PAL.dirt;
-        if (pat && (m === MAT_DIRT_LIT || m === MAT_DIRT || m === MAT_DIRT_DARK)) {
-          // Sample the tile pattern, darkening it for the deeper layer.
+        if (pat && (m === MAT_DIRT_LIT || m === MAT_DIRT || m === MAT_DIRT_DARK || m === MAT_BEDROCK)) {
+          // Two texture samples at different scales/offsets blended by a hash, plus a
+          // slow depth darkening, so the repeat is not readable as a grid.
           const px = (x >> 1) % pat.width;
           const py = (y >> 1) % pat.height;
+          const qx = ((x + 37) >> 2) % pat.width;
+          const qy = ((y + 53) >> 2) % pat.height;
           const pi = (py * pat.width + px) * 4;
-          const shade = m === MAT_DIRT_LIT ? 1.18 : m === MAT_DIRT ? 1 : 0.72;
-          d[o] = Math.min(255, pat.data[pi] * shade);
-          d[o + 1] = Math.min(255, pat.data[pi + 1] * shade);
-          d[o + 2] = Math.min(255, pat.data[pi + 2] * shade);
+          const qi = (qy * pat.width + qx) * 4;
+          const h = hash2(x >> 3, y >> 3);
+          const mix = 0.25 + h * 0.5;
+          const depth = Math.min(1, (y - t.surfaceY(x)) / 220);
+          const base = m === MAT_DIRT_LIT ? 1.12 : m === MAT_DIRT ? 1.0 : m === MAT_DIRT_DARK ? 0.78 : 0.55;
+          const shade = base * (1 - depth * 0.22) * (0.93 + hash2(x, y) * 0.14);
+          d[o] = Math.min(255, (pat.data[pi] * (1 - mix) + pat.data[qi] * mix) * shade);
+          d[o + 1] = Math.min(255, (pat.data[pi + 1] * (1 - mix) + pat.data[qi + 1] * mix) * shade);
+          d[o + 2] = Math.min(255, (pat.data[pi + 2] * (1 - mix) + pat.data[qi + 2] * mix) * shade);
           d[o + 3] = 255;
           continue;
         }

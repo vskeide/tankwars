@@ -1,0 +1,10 @@
+{
+  "_comment": "",
+  "_scale": 1,
+  "00": "boss.hive.body",
+  "01": "boss.hive.rockets",
+  "02": "boss.hive.drone",
+  "03": "boss.hive.drill",
+  "04": "boss.hive.trigun",
+  "05": "boss.hive.damaged"
+}
