@@ -74,7 +74,8 @@ npm run build
 2. Campaign: levels, enemy waves, two bosses with hardpoints and phases ✔ (needs play-tuning)
 3. Separate hull/turret/barrel sheets → true turret rotation & recoil
 4. Arena: jump/hop hulls, mines, stationary defences
-5. Menu mouse support, gamepad polish, settings, persistence (localStorage)
+5. Gamepad polish; more settings (tank size ✔ — `render/settings.ts`), persistence ✔
+   Consider: hold-to-charge as an option in turn-based modes; turret tilt on slopes
 6. **Music (TODO, needs Vebjørn):** generate Mad-Max-flavoured tracks in Suno (menu, 2–3 battle,
    boss), drop them in `public/music/` and list them in `music/manifest.json`. The player
    (`render/music.ts`) is done; nothing plays until files exist.

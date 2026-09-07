@@ -20,6 +20,7 @@ import { atlasHas, ensureHull, skinForClass, spriteScale } from '../atlas';
 import { CLASS_BARREL, ENEMY_PARTS, ensureTeamTexture, hasParts, partMetrics } from '../parts';
 import { sliceBiome } from '../biomeBackdrop';
 import { playMusic, toggleMusic } from '../music';
+import { settings } from '../settings';
 import { ensureTankTextures, hullTextureKey, barrelTextureKey } from '../sprites';
 import type { BattleSetup } from '../setup';
 
@@ -281,7 +282,7 @@ export class BattleScene extends Phaser.Scene {
     let barrel: Phaser.GameObjects.Image;
     if (skin) {
       const info = ensureHull(this, skin, 'r', t.colour);
-      const sc = spriteScale(`${skin}.r`);
+      const sc = spriteScale(`${skin}.r`) * settings().tankScale;
       hull = this.add.image(0, 0, info.key).setOrigin(0.5, 1).setScale(sc);
       pivotX = info.pivotX * sc;
       pivotY = info.pivotY * sc;
@@ -293,10 +294,13 @@ export class BattleScene extends Phaser.Scene {
       t.halfHeight = Math.round(info.height * 0.42 * sc);
     } else {
       const meta = ensureTankTextures(this, t.cls, t.colour);
-      hull = this.add.image(0, 0, hullTextureKey(t.cls, t.colour)).setOrigin(0.5, 1).setScale(SPRITE_SCALE);
-      pivotX = meta.pivotX * SPRITE_SCALE;
-      pivotY = meta.pivotY * SPRITE_SCALE;
-      barrel = this.add.image(0, 0, barrelTextureKey(t.cls, t.colour)).setOrigin(2 / (meta.barrelLen + 4), 0.5).setScale(SPRITE_SCALE);
+      const sc = SPRITE_SCALE * settings().tankScale;
+      hull = this.add.image(0, 0, hullTextureKey(t.cls, t.colour)).setOrigin(0.5, 1).setScale(sc);
+      pivotX = meta.pivotX * sc;
+      pivotY = meta.pivotY * sc;
+      barrel = this.add.image(0, 0, barrelTextureKey(t.cls, t.colour)).setOrigin(2 / (meta.barrelLen + 4), 0.5).setScale(sc);
+      t.halfWidth = Math.round(t.cls.halfWidth * 2 * settings().tankScale);
+      t.halfHeight = Math.round(t.cls.halfHeight * 2 * settings().tankScale);
     }
     hull.setDepth(30);
     barrel.setDepth(29);
@@ -324,22 +328,23 @@ export class BattleScene extends Phaser.Scene {
     const tm = partMetrics(this, ids.turret);
     const bm = partMetrics(this, ids.barrel);
 
-    const hull = this.add.image(0, 0, hullKey).setOrigin(0.5, 1).setDepth(30);
-    const turret = this.add.image(0, 0, turretKey).setOrigin(0.5, 1).setDepth(31);
-    const barrel = this.add.image(0, 0, barrelKey).setOrigin(0.1, 0.5).setDepth(29);
+    const sc = settings().tankScale;
+    const hull = this.add.image(0, 0, hullKey).setOrigin(0.5, 1).setDepth(30).setScale(sc);
+    const turret = this.add.image(0, 0, turretKey).setOrigin(0.5, 1).setDepth(31).setScale(sc);
+    const barrel = this.add.image(0, 0, barrelKey).setOrigin(0.1, 0.5).setDepth(29).setScale(sc);
 
     // Turret sits on the deck, sunk a few pixels; the barrel pivots at the mantlet
-    // on the turret's front (right) side.
-    const turretX = Math.round((hm.massX - hm.width / 2) * 0.4);
-    const turretY = -(hm.height - hm.topAtCentre) + 4;
-    const pivotX = turretX + Math.round(tm.width * 0.28);
-    const pivotY = turretY - Math.round(tm.height * 0.5);
+    // on the turret's front (right) side. Everything scales with the size setting.
+    const turretX = Math.round((hm.massX - hm.width / 2) * 0.4 * sc);
+    const turretY = Math.round((-(hm.height - hm.topAtCentre) + 4) * sc);
+    const pivotX = turretX + Math.round(tm.width * 0.28 * sc);
+    const pivotY = turretY - Math.round(tm.height * 0.5 * sc);
 
-    t.halfWidth = Math.round(hm.width * 0.45);
-    t.halfHeight = Math.round((hm.height + tm.height * 0.7) / 2);
+    t.halfWidth = Math.round(hm.width * 0.45 * sc);
+    t.halfHeight = Math.round(((hm.height + tm.height * 0.7) / 2) * sc);
     t.pivotDX = pivotX;
     t.pivotDY = pivotY;
-    t.barrelLen = Math.round(bm.width * 0.88);
+    t.barrelLen = Math.round(bm.width * 0.88 * sc);
 
     const smoke = this.add.particles(0, 0, 'dot2', {
       lifespan: { min: 600, max: 1400 },
@@ -853,11 +858,11 @@ export class BattleScene extends Phaser.Scene {
     const bg = this.add.graphics().fillStyle(PAL.uiInk, 0.85).fillRect(0, 0, NATIVE_W, NATIVE_H);
     const title = this.add.text(NATIVE_W / 2, 260, won ? (next ? `${c.level.name.toUpperCase()} CLEARED` : 'CAMPAIGN COMPLETE') : 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '32px', color: hex(won ? PAL.glow : PAL.uiDanger), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
     const sub = this.add.text(NATIVE_W / 2, 320, won ? `+${c.level.reward} credits` : c.level.brief, { fontFamily: 'monospace', fontSize: '18px', color: hex(PAL.uiText) }).setOrigin(0.5);
-    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 60, won ? (next ? 'ENTER — next level     ESC — menu' : 'ENTER — menu') : 'ENTER — retry     ESC — menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
+    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 60, won ? (next ? 'ENTER — campaign map     ESC — menu' : 'ENTER — menu') : 'ENTER — retry     ESC — menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
     this.overlay.add([bg, title, sub, hint]).setVisible(true);
     this.paused = true;
     this.input.keyboard!.once('keydown-ENTER', () => {
-      if (won && next) this.scene.start('battle', { ...this.setup, levelId: next, seed: (this.setup.seed * 31 + 7) & 0x7fffffff });
+      if (won && next) this.scene.start('campaignMap', { ...this.setup, levelId: next });
       else if (won) this.scene.start('menu');
       else this.scene.start('battle', { ...this.setup, seed: (this.setup.seed * 17 + 3) & 0x7fffffff });
     });

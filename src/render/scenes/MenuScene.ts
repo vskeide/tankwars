@@ -12,6 +12,7 @@ import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { buildBackdrop } from '../backdrop';
 import { playMusic, toggleMusic } from '../music';
+import { TANK_SIZES, settings, updateSettings } from '../settings';
 
 /** Menu layout grid; the camera zooms it to fill the native canvas. */
 const LAYOUT_W = 640;
@@ -44,7 +45,7 @@ const MODES: ModeOption[] = [
 const DIFFS: Difficulty[] = ['rookie', 'gunner', 'veteran', 'deadeye'];
 const BOT_NAMES = ['Kilo', 'Vex', 'Sable', 'Rook', 'Ember', 'Tarn'];
 
-type Row = 'mode' | 'players' | 'p0' | 'p1' | 'p2' | 'p3' | 'rounds' | 'terrain' | 'start';
+type Row = 'mode' | 'players' | 'p0' | 'p1' | 'p2' | 'p3' | 'rounds' | 'terrain' | 'size' | 'start';
 
 export class MenuScene extends Phaser.Scene {
   private setup: BattleSetup = structuredClone(DEFAULT_SETUP);
@@ -73,7 +74,7 @@ export class MenuScene extends Phaser.Scene {
       const t = this.add.image(LAYOUT_W / 2, LAYOUT_H / 2, 'title').setDepth(2);
       t.setScale(Math.max(LAYOUT_W / t.width, LAYOUT_H / t.height));
       this.add.graphics().fillStyle(PAL.uiInk, 0.35).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
-      this.add.graphics().fillStyle(PAL.uiInk, 0.82).fillRoundedRect(30, 50, 460, 200, 4).lineStyle(1, PAL.uiEdge, 0.8).strokeRoundedRect(30, 50, 460, 200, 4).setDepth(3);
+      this.add.graphics().fillStyle(PAL.uiInk, 0.82).fillRoundedRect(30, 50, 480, 216, 4).lineStyle(1, PAL.uiEdge, 0.8).strokeRoundedRect(30, 50, 480, 216, 4).setDepth(3);
     } else {
       this.add.graphics().fillStyle(PAL.uiInk, 0.72).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
       if (atlasHas('boss.behemoth.r')) {
@@ -140,7 +141,7 @@ export class MenuScene extends Phaser.Scene {
     const r: Row[] = ['mode', 'players'];
     for (let i = 0; i < this.setup.players.length; i++) r.push(`p${i}` as Row);
     if (this.setup.kind !== 'campaign') r.push('rounds', 'terrain');
-    r.push('start');
+    r.push('size', 'start');
     return r;
   }
 
@@ -174,6 +175,12 @@ export class MenuScene extends Phaser.Scene {
       case 'rounds':
         s.rounds = Math.max(1, Math.min(9, s.rounds + dir));
         break;
+      case 'size': {
+        const i = TANK_SIZES.findIndex((t) => t.scale === settings().tankScale);
+        const next = TANK_SIZES[((i < 0 ? 2 : i) + dir + TANK_SIZES.length) % TANK_SIZES.length];
+        updateSettings({ tankScale: next.scale });
+        break;
+      }
       case 'terrain': {
         const ids = ['random', ...TERRAIN_STYLES.map((t) => t.id)];
         s.terrainStyle = ids[(ids.indexOf(s.terrainStyle) + dir + ids.length) % ids.length];
@@ -220,7 +227,11 @@ export class MenuScene extends Phaser.Scene {
 
   private start(): void {
     this.setup.seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) & 0x7fffffff;
-    if (this.setup.kind === 'campaign') this.setup.levelId = this.savedLevel();
+    if (this.setup.kind === 'campaign') {
+      this.setup.levelId = this.savedLevel();
+      this.scene.start('campaignMap', structuredClone(this.setup));
+      return;
+    }
     this.scene.start('battle', structuredClone(this.setup));
   }
 
@@ -276,8 +287,10 @@ export class MenuScene extends Phaser.Scene {
       this.texts.push(this.add.text(x0 + 130, y, `next mission: ${LEVELS.indexOf(lv) + 1}/${LEVELS.length} — ${lv.name}`, { fontFamily: 'monospace', fontSize: '8px', color: hex(PAL.uiTextDim) }).setDepth(10));
       y += 12;
     }
+    const size = TANK_SIZES.find((t) => t.scale === settings().tankScale) ?? TANK_SIZES[2];
+    line('TANK SIZE', `‹ ${size.label} ›`, 'size');
     y += 6;
-    line('START BATTLE', this.row === 'start' ? 'press ENTER' : '', 'start');
+    line(s.kind === 'campaign' ? 'OPEN CAMPAIGN MAP' : 'START BATTLE', this.row === 'start' ? 'press ENTER' : '', 'start');
 
     this.texts.push(
       this.add.text(LAYOUT_W / 2, LAYOUT_H - 10, '↑↓ select   ←→ change   TAB next field   ENTER confirm   · or click: left = next, right = previous', { fontFamily: 'monospace', fontSize: '7px', color: hex(PAL.uiTextDim) }).setOrigin(0.5).setDepth(10),
