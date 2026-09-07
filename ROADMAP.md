@@ -64,6 +64,17 @@ Items marked ★ were asked for by Vebjørn; the rest are my suggestions.
 | 35 | **Unit tests for the core** (vitest): ballistics, terrain collapse, damage falloff, bot solver convergence | S | `tools/smoke.ts` is the seed |
 | 36 | **Asset pipeline hardening**: `npm run assets` runs extractor + mounts + contact sheets; a check that every id in `names.json` has a file | S | Makes new sheets a one-command drop-in |
 
+## Done tonight (2026-09-08/09)
+
+1, 2, 3 (commander, score, difficulty), 11 (hull tilt), 12 (hold-to-charge option), 17 (killing-shot
+replay). Follow-ups noted while building them:
+
+- Score export/import as JSON (item 2's note) — not done; scores live only in this browser.
+- Commander perks for the co-op second player — currently only P1 gets the perk.
+- Hardpoint hit detection counts any damage as a "hit" for accuracy; splash on two targets counts twice.
+- Replay is turn-based only; Arena/Campaign kills have no replay.
+- Turret still does not pitch with the hull's tilt (barrel stays absolute — correct for aim, slightly stiff visually).
+
 ## Suggested order
 
 1 → 3 → 2 (commander, difficulty, score: one coherent campaign feature), then 11, 13, 14 (feel), 26 + 27 (UI kit), 5 + 6 (Hive boss, defences), 31 (deploy so friends can play), 22 (gamepads), 23 last.

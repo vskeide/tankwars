@@ -23,6 +23,9 @@ port). If you need a browser API in core, you are in the wrong layer.
 | `src/core/world.ts` | The simulation: terrain, tanks, projectiles, crates, boss hardpoints, fixed-step `step()` and a `WorldEvent` queue for the renderer |
 | `src/core/rules/turnBased.ts` | Classic / Modern / Advanced: one tank acts, world settles, turn passes; shop between rounds |
 | `src/core/rules/arena.ts` | Real-time hotseat: all tanks act every frame, cooldowns, crate drops |
+| `src/core/rules/campaign.ts` | Scripted levels, enemy waves, bosses with hardpoints/phases; commander perks, difficulty tiers, per-level score tallies |
+| `src/core/campaign/` | Levels, bosses, generated mounts, map nodes, commanders, difficulty, score formula |
+| `src/render/campaignRun.ts` | localStorage persistence of the run, progress and high scores |
 | `src/core/modes.ts` | The three turn-based modes as data. Add a mode here, not in code |
 | `src/core/weapons.ts`, `tanks.ts` | The armoury and hull roster. Each entry lists which modes it exists in |
 | `src/core/terrain.ts` | Destructible byte-map with dirty-rect tracking; midpoint-displacement generator; five terrain styles |
