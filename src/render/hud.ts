@@ -7,6 +7,7 @@ import { PAL, TEAM_COLOURS, hex } from '../core/palette';
 import { weaponById } from '../core/weapons';
 import type { Tank, World } from '../core/world';
 import { HUD_H, NATIVE_H, NATIVE_W } from './config';
+import { atlasHas } from './atlas';
 
 const FONT = { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText) };
 
@@ -19,6 +20,8 @@ export class Hud {
   private readonly status: Phaser.GameObjects.Text;
   private readonly banner: Phaser.GameObjects.Text;
   private readonly rack: Phaser.GameObjects.Text;
+  private rackIcons: Phaser.GameObjects.Image[] = [];
+  private rackKey = '';
   private readonly help: Phaser.GameObjects.Container;
   private readonly bars = new Map<number, { bg: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text }>();
 
@@ -85,17 +88,38 @@ export class Hud {
     }
     this.status.setText(statusLine);
 
-    // Weapon rack for the current tank.
+    // Weapon rack for the current tank, with sheet icons where the UI kit has them.
     if (current) {
       const rows: string[] = [];
+      const ids: string[] = [];
       for (const [id, n] of current.ammo) {
         if (n === 0) continue;
         const w = weaponById(id);
         const sel = id === current.selectedWeapon;
-        rows.push(`${sel ? '▶ ' : '  '}${w.name.padEnd(15)} ${n < 0 ? '∞' : String(n).padStart(2)}`);
+        rows.push(`${sel ? '▶ ' : '  '}    ${w.name.padEnd(15)} ${n < 0 ? '∞' : String(n).padStart(2)}`);
+        ids.push(id);
       }
       this.rack.setText(rows.join('\n'));
-    } else this.rack.setText('');
+      const key = `${current.index}:${ids.join(',')}`;
+      if (key !== this.rackKey) {
+        this.rackKey = key;
+        this.rackIcons.forEach((i) => i.destroy());
+        this.rackIcons = [];
+        const lineH = this.rack.height / Math.max(1, rows.length);
+        ids.forEach((id, i) => {
+          const icon = `icon.${id}`;
+          if (!atlasHas(icon)) return;
+          const img = this.scene.add.image(this.rack.x - this.rack.width + 30, this.rack.y + lineH * (i + 0.5), icon).setDepth(102).setScrollFactor(0).setScale(1);
+          img.setDisplaySize(lineH - 2, lineH - 2);
+          this.rackIcons.push(img);
+        });
+      }
+    } else {
+      this.rack.setText('');
+      this.rackIcons.forEach((i) => i.destroy());
+      this.rackIcons = [];
+      this.rackKey = '';
+    }
 
     // Wind gauge: centred bar, fills left or right.
     const wx = NATIVE_W - 230;

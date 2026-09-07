@@ -86,6 +86,7 @@ export class MenuScene extends Phaser.Scene {
 
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => this.onKey(e));
     this.input.keyboard!.on('keydown-N', () => toggleMusic(this));
+    this.input.mouse?.disableContextMenu();
     this.input.once('pointerdown', () => this.sfx.unlock());
     this.input.keyboard!.once('keydown', () => playMusic(this, 'menu'));
     this.redraw();
@@ -196,6 +197,19 @@ export class MenuScene extends Phaser.Scene {
     }
   }
 
+  /** Left click runs `onLeft`, right click `onRight` (defaults to left), then redraws. */
+  private clickable(t: Phaser.GameObjects.Text, onLeft: () => void, onRight?: () => void): void {
+    t.setInteractive({ useHandCursor: true }).on('pointerdown', (ptr: Phaser.Input.Pointer) => {
+      this.sfx.unlock();
+      if (ptr.rightButtonDown() && onRight) onRight();
+      else onLeft();
+      this.sfx.play('select');
+      this.redraw();
+    });
+    t.on('pointerover', () => t.setAlpha(0.8));
+    t.on('pointerout', () => t.setAlpha(1));
+  }
+
   private savedLevel(): string {
     try {
       const v = localStorage.getItem('tankwars.campaign.level');
@@ -221,6 +235,8 @@ export class MenuScene extends Phaser.Scene {
       const c = active ? hex(PAL.uiEdge) : hex(PAL.uiText);
       const t1 = this.add.text(x0, y, (active ? '▶ ' : '  ') + label, { fontFamily: 'monospace', fontSize: '9px', color: c }).setDepth(10);
       const t2 = this.add.text(x0 + 130, y, value, { fontFamily: 'monospace', fontSize: '9px', color: active ? hex(PAL.uiText) : hex(PAL.uiTextDim) }).setDepth(10);
+      this.clickable(t1, () => { this.row = row; this.col = 0; if (row === 'start') this.start(); });
+      this.clickable(t2, () => { this.row = row; this.col = 0; if (row === 'start') this.start(); else this.adjust(1); }, () => { this.row = row; this.adjust(-1); });
       this.texts.push(t1, t2);
       if (hint && active) this.texts.push(this.add.text(x0 + 130, y + 10, hint, { fontFamily: 'monospace', fontSize: '7px', color: hex(PAL.uiTextDim), wordWrap: { width: 300 } }).setDepth(10));
       y += hint && active ? 12 + Math.ceil(hint.length / 60) * 9 : 12;
@@ -238,6 +254,16 @@ export class MenuScene extends Phaser.Scene {
       const val = `${f(0, p.isBot ? 'BOT' : 'HUMAN')} ${p.isBot ? f(1, p.difficulty.toUpperCase()) : '          '} ${showClass ? f(2, (cls?.name ?? '').toUpperCase()) : ''}${keys}`;
       const t = this.add.text(x0 + 130, y, val, { fontFamily: 'monospace', fontSize: '9px', color: hex(PAL.uiText) }).setDepth(10);
       const l = this.add.text(x0, y, (this.row === `p${i}` ? '▶ ' : '  ') + `■ ${p.name}`, { fontFamily: 'monospace', fontSize: '9px', color: hex(team.lit) }).setDepth(10);
+      const rowId = `p${i}` as Row;
+      this.clickable(l, () => { this.row = rowId; this.col = 0; });
+      // Click on a field: each field is roughly a third of the value text.
+      t.setInteractive({ useHandCursor: true }).on('pointerdown', (ptr: Phaser.Input.Pointer, lx: number) => {
+        this.row = rowId;
+        this.col = Math.max(0, Math.min(2, Math.floor((lx / Math.max(1, t.width)) * 3)));
+        this.adjust(ptr.rightButtonDown() ? -1 : 1);
+        this.sfx.play('cycle');
+        this.redraw();
+      });
       this.texts.push(t, l);
       y += 12;
     });
@@ -254,7 +280,7 @@ export class MenuScene extends Phaser.Scene {
     line('START BATTLE', this.row === 'start' ? 'press ENTER' : '', 'start');
 
     this.texts.push(
-      this.add.text(LAYOUT_W / 2, LAYOUT_H - 10, '↑↓ select   ←→ change   TAB next field   ENTER confirm', { fontFamily: 'monospace', fontSize: '7px', color: hex(PAL.uiTextDim) }).setOrigin(0.5).setDepth(10),
+      this.add.text(LAYOUT_W / 2, LAYOUT_H - 10, '↑↓ select   ←→ change   TAB next field   ENTER confirm   · or click: left = next, right = previous', { fontFamily: 'monospace', fontSize: '7px', color: hex(PAL.uiTextDim) }).setOrigin(0.5).setDepth(10),
     );
   }
 }

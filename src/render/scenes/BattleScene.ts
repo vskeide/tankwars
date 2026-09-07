@@ -146,7 +146,10 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
-    this.input.keyboard!.on('keydown-ESC', () => this.scene.start('menu'));
+    this.input.keyboard!.on('keydown-ESC', () => {
+      if (this.scene.isActive('shop')) this.scene.stop('shop');
+      this.scene.start('menu');
+    });
     this.input.keyboard!.on('keydown-P', () => (this.paused = !this.paused));
     this.input.keyboard!.on('keydown-M', () => (this.sfx.muted = !this.sfx.muted));
     this.input.keyboard!.on('keydown-H', () => this.hud.toggleHelp(this.helpLines()));
