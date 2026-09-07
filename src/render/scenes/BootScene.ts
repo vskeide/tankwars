@@ -3,6 +3,7 @@ import { PAL, hex } from '../../core/palette';
 import { queueAtlas } from '../atlas';
 import { ensureCommonTextures } from '../sprites';
 import { NATIVE_H, NATIVE_W } from '../config';
+import { queueMusic, type MusicManifest } from '../music';
 
 /**
  * Loads the sprite atlas (two-stage: manifest + names first, then images),
@@ -26,6 +27,7 @@ export class BootScene extends Phaser.Scene {
     this.load.on('loaderror', (f: Phaser.Loader.File) => console.warn('missing asset', f.key));
 
     this.load.json('atlas-manifest', 'atlas/manifest.json');
+    this.load.json('music-manifest', 'music/manifest.json');
     this.load.once('filecomplete-json-atlas-manifest', () => {
       const manifest = this.cache.json.get('atlas-manifest') as { sheets: string[] };
       for (const sheet of manifest.sheets) this.load.json(`names-${sheet}`, `atlas/${sheet}/names.json`);
@@ -46,6 +48,8 @@ export class BootScene extends Phaser.Scene {
       }
       queueAtlas(this, manifest, names);
     }
+    const music = this.cache.json.get('music-manifest') as MusicManifest | undefined;
+    if (music) queueMusic(this, music);
     this.load.image('title', 'art/title.png');
     for (const b of ['dunes', 'mesas', 'crags', 'basin', 'spires']) this.load.image(`bg-${b}`, `art/bg-${b}.png`);
     this.load.image('campaign-map', 'art/campaign-map.png');

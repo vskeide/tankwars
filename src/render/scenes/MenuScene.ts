@@ -11,6 +11,7 @@ import { DEFAULT_SETUP, type BattleSetup } from '../setup';
 import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { buildBackdrop } from '../backdrop';
+import { playMusic, toggleMusic } from '../music';
 
 /** Menu layout grid; the camera zooms it to fill the native canvas. */
 const LAYOUT_W = 640;
@@ -84,7 +85,9 @@ export class MenuScene extends Phaser.Scene {
     this.add.text(LAYOUT_W / 2, 36, 'artillery, redrawn', { fontFamily: 'monospace', fontSize: '8px', color: hex(PAL.uiTextDim) }).setOrigin(0.5).setDepth(10);
 
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => this.onKey(e));
+    this.input.keyboard!.on('keydown-N', () => toggleMusic(this));
     this.input.once('pointerdown', () => this.sfx.unlock());
+    this.input.keyboard!.once('keydown', () => playMusic(this, 'menu'));
     this.redraw();
   }
 

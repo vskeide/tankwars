@@ -19,6 +19,7 @@ import { InputRouter } from '../inputs';
 import { atlasHas, ensureHull, skinForClass, spriteScale } from '../atlas';
 import { CLASS_BARREL, ENEMY_PARTS, ensureTeamTexture, hasParts, partMetrics } from '../parts';
 import { sliceBiome } from '../biomeBackdrop';
+import { playMusic, toggleMusic } from '../music';
 import { ensureTankTextures, hullTextureKey, barrelTextureKey } from '../sprites';
 import type { BattleSetup } from '../setup';
 
@@ -149,6 +150,8 @@ export class BattleScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-P', () => (this.paused = !this.paused));
     this.input.keyboard!.on('keydown-M', () => (this.sfx.muted = !this.sfx.muted));
     this.input.keyboard!.on('keydown-H', () => this.hud.toggleHelp(this.helpLines()));
+    this.input.keyboard!.on('keydown-N', () => toggleMusic(this));
+    playMusic(this, this.campaign && this.campaign.bosses.length ? 'boss' : 'battle');
     this.input.keyboard!.on('keydown-F', () => {
       if (this.scale.isFullscreen) this.scale.stopFullscreen();
       else this.scale.startFullscreen();
@@ -170,7 +173,7 @@ export class BattleScene extends Phaser.Scene {
         ...move,
         'SPACE            fire',
         'TAB / Shift+TAB  next / previous weapon',
-        'P  pause    M  mute    F  fullscreen    ESC  menu    H  close',
+        'P  pause    M  mute sfx    N  music    F  fullscreen    ESC  menu    H  close',
       ];
     }
     return [
