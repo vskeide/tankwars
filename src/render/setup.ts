@@ -6,6 +6,8 @@ export interface BattleSetup {
   kind: 'turn' | 'arena' | 'campaign';
   /** Campaign level id when kind === 'campaign'. */
   levelId?: string;
+  commanderId?: string;
+  difficultyId?: string;
   mode: GameModeId;
   players: PlayerSetup[];
   rounds: number;

@@ -7,9 +7,9 @@ Items marked ★ were asked for by Vebjørn; the rest are my suggestions.
 
 | # | Item | Effort | Notes |
 |---|---|---|---|
-| 1 | ★ **Choose a commander** before the campaign: six portraits, each tied to a hull class and a small perk (e.g. +fuel, +1 starting weapon, faster reload, tougher armour) | M | Portraits exist (`portrait.p1–p6`); perks reuse `TankPerk`. Selection screen sits before the map |
-| 2 | ★ **Campaign score & high-score table**: time to finish, damage taken, shots fired, accuracy, crates collected, deaths/retries, difficulty multiplier → one score; per-commander and overall best in `localStorage`, shown on the map and on completion | M | Needs a difficulty setting (3) to be meaningful; export/import as JSON so scores survive a browser wipe |
-| 3 | **Campaign difficulty** (Recruit / Soldier / Veteran / Ironman): enemy accuracy, boss HP/tempo, crate rate; Ironman = no retries, run ends on death | S | Score multiplier feeds item 2 |
+| 1 | ✔ ★ **Choose a commander** before the campaign: six portraits, each tied to a hull class and a small perk (e.g. +fuel, +1 starting weapon, faster reload, tougher armour) | M | Portraits exist (`portrait.p1–p6`); perks reuse `TankPerk`. Selection screen sits before the map |
+| 2 | ✔ ★ **Campaign score & high-score table**: time to finish, damage taken, shots fired, accuracy, crates collected, deaths/retries, difficulty multiplier → one score; per-commander and overall best in `localStorage`, shown on the map and on completion | M | Needs a difficulty setting (3) to be meaningful; export/import as JSON so scores survive a browser wipe |
+| 3 | ✔ **Campaign difficulty** (Recruit / Soldier / Veteran / Ironman): enemy accuracy, boss HP/tempo, crate rate; Ironman = no retries, run ends on death | S | Score multiplier feeds item 2 |
 | 4 | **Level intro cards** with commander portrait, mission brief and enemy roster; boss taunt lines on phase changes | S | Copy exists in `levels.ts`; make it voice-less dialogue boxes |
 | 5 | **Third boss (Hive Crawler)** in the campaign: legged body, drone launcher, three mounts already detected; drones as small flying hardpoints that dive at the player | M | Sprites and mounts are in; needs a `drone` attack kind in `bosses.ts` |
 | 6 | **Stationary defences** on later levels: gun turret and missile launcher sprites from the misc sheet as immobile hardpoints | S | World already treats hardpoints generically |
@@ -22,8 +22,8 @@ Items marked ★ were asked for by Vebjørn; the rest are my suggestions.
 
 | # | Item | Effort | Notes |
 |---|---|---|---|
-| 11 | **Turret tilts with the hull** on slopes; barrel pivot follows | S | Cosmetic but very visible on dunes |
-| 12 | **Hold-to-charge as an option in turn-based** modes (setting), for players who prefer the Arena feel | S | Setting + `turnIntent` change |
+| 11 | ✔ **Turret tilts with the hull** on slopes; barrel pivot follows | S | Cosmetic but very visible on dunes |
+| 12 | ✔ **Hold-to-charge as an option in turn-based** modes (setting), for players who prefer the Arena feel | S | Setting + `turnIntent` change |
 | 13 | **Tank drive animation**: track-link scroll and slight hull bob while moving; dust behind | S | `fx.dust` exists; tracks need a 2-frame offset trick on the hull sprite |
 | 14 | **Damage states**: soot/crack overlay at <50 % and <25 % HP, smoke already there | S | Procedural overlay on the hull texture |
 | 15 | **Wind gusts** in real-time modes (wind drifts smoothly instead of stepping) and a visible wind sock/particles | S | HUD gauge already animates |

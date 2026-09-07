@@ -17,6 +17,8 @@ import type { PlayerSetup } from './turnBased';
 import { LEVELS, ENEMY_CLASS, levelById, type LevelDef } from '../campaign/levels';
 import { bossById, type BossDef, type HardpointDef } from '../campaign/bosses';
 import { BOSS_MOUNTS } from '../campaign/mounts';
+import { commanderById, type Commander } from '../campaign/commanders';
+import { difficultyById, shiftTier, type CampaignDifficulty } from '../campaign/difficulty';
 
 export interface CampaignConfig {
   levelId: string;
@@ -24,6 +26,19 @@ export interface CampaignConfig {
   seed: number;
   width: number;
   height: number;
+  /** Commander id (perks, hull); undefined = default commander. */
+  commanderId?: string;
+  /** Difficulty tier id; undefined = soldier. */
+  difficultyId?: string;
+}
+
+/** Per-level tallies for the campaign score. */
+export interface LevelStats {
+  timeSec: number;
+  shotsFired: number;
+  hits: number;
+  damageTaken: number;
+  crates: number;
 }
 
 export type CampaignPhase = 'brief' | 'live' | 'won' | 'lost';
@@ -59,6 +74,11 @@ export class CampaignLevel {
   readonly playerIndices: number[] = [];
   /** Indices of enemy bot tanks. */
   readonly enemyIndices: number[] = [];
+  readonly commander: Commander;
+  readonly difficulty: CampaignDifficulty;
+  readonly stats: LevelStats = { timeSec: 0, shotsFired: 0, hits: 0, damageTaken: 0, crates: 0 };
+  /** Cooldown multiplier for the players' weapons (commander perk). */
+  private reloadMult = 1;
 
   phase: CampaignPhase = 'brief';
   briefTimer = 3.5;
@@ -73,19 +93,26 @@ export class CampaignLevel {
     this.config = config;
     this.level = levelById(config.levelId);
     this.rng = new Rng(config.seed);
+    this.commander = commanderById(config.commanderId);
+    this.difficulty = difficultyById(config.difficultyId);
+    this.reloadMult = this.commander.perk.reloadMult;
     const mode = { ...gameMode('advanced'), retainAim: true };
     this.world = new World({ width: config.width, height: config.height, mode, seed: this.rng.int(1, 2 ** 31 - 1) });
 
-    // Players first so their indices match the input slots.
+    // Players first so their indices match the input slots. The commander sets the
+    // hull and perks; a second (co-op) player gets the same hull without perks.
+    const perk = this.commander.perk;
+    const base = tankClassById(this.commander.cls);
+    const cls = { ...base, hp: base.hp + perk.hpBonus, fuel: base.fuel + perk.fuelBonus, armour: base.armour * perk.armourMult };
     config.players.forEach((p, i) => {
-      const t = this.world.addTank({ index: i, name: p.name, colour: p.colour, isBot: p.isBot, difficulty: p.difficulty, cls: tankClassById(p.tankClass), skin: p.skin, credits: 0 });
+      const t = this.world.addTank({ index: i, name: p.name, colour: p.colour, isBot: p.isBot, difficulty: p.difficulty, cls: i === 0 ? cls : base, skin: p.skin, credits: 0 });
       this.playerIndices.push(t.index);
     });
     this.level.enemies.forEach((e, k) => {
       const def = ENEMY_CLASS[e.kind];
-      const cls = tankClassById(def.cls);
-      const t = this.world.addTank({ index: this.world.tanks.length, name: `${e.kind[0].toUpperCase()}${e.kind.slice(1)} ${k + 1}`, colour: 5, isBot: true, difficulty: e.difficulty, cls, skin: def.skin, credits: 0 });
-      t.maxHp = Math.round(cls.hp * def.hpScale);
+      const ecls = tankClassById(def.cls);
+      const t = this.world.addTank({ index: this.world.tanks.length, name: `${e.kind[0].toUpperCase()}${e.kind.slice(1)} ${k + 1}`, colour: 5, isBot: true, difficulty: shiftTier(e.difficulty, this.difficulty.enemyShift), cls: ecls, skin: def.skin, credits: 0 });
+      t.maxHp = Math.round(ecls.hp * def.hpScale * this.difficulty.enemyHpMult);
       this.enemyIndices.push(t.index);
     });
     this.driveAccum = this.world.tanks.map(() => 0);
@@ -102,8 +129,8 @@ export class CampaignLevel {
       this.world.respawnTank(t, Math.round(w * this.level.playerAt) + k * 40 * UNIT);
       t.ammo.clear();
       t.ammo.set('shell', -1);
-      t.ammo.set('heavy', 4);
-      t.ammo.set('roller', 2);
+      t.ammo.set('heavy', 2);
+      for (const [wid, n] of this.commander.perk.startWeapons) t.ammo.set(wid, (t.ammo.get(wid) ?? 0) + n);
       t.selectedWeapon = 'shell';
       t.facing = 1;
       t.angle = 60;
@@ -133,7 +160,7 @@ export class CampaignLevel {
     this.world.rollWind();
     this.phase = 'brief';
     this.briefTimer = 3.5;
-    this.crateTimer = this.level.crateInterval || Infinity;
+    this.crateTimer = this.crateInterval();
     this.banners.push(this.level.name.toUpperCase());
   }
 
@@ -173,7 +200,8 @@ export class CampaignLevel {
           hh = Math.round(mounts.height * 0.14);
         }
       }
-      const hp = this.world.addHardpoint({ bossIndex: state.index, name: h.name, dx, dy, core: h.core, x: x + dx * state.facing, y: y + dy, halfWidth: hw, halfHeight: hh, hp: h.hp, maxHp: h.hp });
+      const hpv = Math.round(h.hp * this.difficulty.bossHpMult);
+      const hp = this.world.addHardpoint({ bossIndex: state.index, name: h.name, dx, dy, core: h.core, x: x + dx * state.facing, y: y + dy, halfWidth: hw, halfHeight: hh, hp: hpv, maxHp: hpv });
       state.hardpoints.set(h.id, hp);
       state.maxHp += h.hp;
     }
@@ -240,7 +268,7 @@ export class CampaignLevel {
           this.driveAccum[i] -= whole;
         }
       }
-      if ((it.fire || it.fireHeld) && t.cooldown <= 0 && w.fire(t)) t.cooldown = cooldownFor(t.selectedWeapon);
+      if ((it.fire || it.fireHeld) && t.cooldown <= 0 && w.fire(t)) t.cooldown = cooldownFor(t.selectedWeapon) * (this.playerIndices.includes(t.index) ? this.reloadMult : 1);
     });
 
     for (const b of this.bosses) this.updateBoss(b, dt);
@@ -249,7 +277,7 @@ export class CampaignLevel {
       this.crateTimer -= dt;
       if (this.crateTimer <= 0) {
         this.dropCrate();
-        this.crateTimer = this.level.crateInterval * this.rng.range(0.7, 1.3);
+        this.crateTimer = this.crateInterval() * this.rng.range(0.7, 1.3);
       }
     }
     this.windTimer -= dt;
@@ -259,6 +287,8 @@ export class CampaignLevel {
     }
 
     w.step(dt);
+    this.stats.timeSec += dt;
+    this.tally();
 
     // Kill hardpoints when their boss dies, so stray guns stop shooting.
     for (const b of this.bosses) {
@@ -276,6 +306,24 @@ export class CampaignLevel {
       this.banners.push('LEVEL CLEAR');
       this.overTimer = 0;
       for (const i of this.playerIndices) w.tanks[i].credits += this.level.reward;
+    }
+  }
+
+  private crateInterval(): number {
+    if (!this.level.crateInterval) return Infinity;
+    return this.level.crateInterval * this.difficulty.crateMult * this.commander.perk.crateMult;
+  }
+
+  /** Read the world's pending events for score-relevant facts (renderer drains them later). */
+  private tally(): void {
+    const players = new Set(this.playerIndices);
+    const playerIds = new Set(this.playerIndices.map((i) => this.world.tanks[i].id));
+    for (const e of this.world.peekEvents()) {
+      if (e.kind === 'launch' && players.has(e.shooter)) this.stats.shotsFired += 1;
+      else if (e.kind === 'damage') {
+        if (playerIds.has(e.target)) this.stats.damageTaken += e.amount + e.shieldAbsorbed;
+        else if (players.has(e.by) && e.amount > 0) this.stats.hits += 1;
+      } else if (e.kind === 'cratePickup' && players.has(e.tank)) this.stats.crates += 1;
     }
   }
 
@@ -305,7 +353,7 @@ export class CampaignLevel {
         b.timers.set(id, t);
         continue;
       }
-      b.timers.set(id, def.attack.interval * tempo * this.rng.range(0.85, 1.15));
+      b.timers.set(id, def.attack.interval * tempo * this.difficulty.bossTempo * this.rng.range(0.85, 1.15));
       this.bossAttack(b, hp, def, target);
     }
   }

@@ -136,7 +136,7 @@ export type WorldEvent =
   | { kind: 'explode'; at: Vec2; radius: number; weapon: Weapon }
   | { kind: 'fill'; at: Vec2; radius: number }
   | { kind: 'burn'; at: Vec2; weapon: Weapon }
-  | { kind: 'damage'; target: number; amount: number; shieldAbsorbed: number; hpAfter: number; at: Vec2 }
+  | { kind: 'damage'; target: number; amount: number; shieldAbsorbed: number; hpAfter: number; at: Vec2; by: number }
   | { kind: 'kill'; target: number; by: number }
   | { kind: 'land'; tank: number; impactSpeed: number; damage: number }
   | { kind: 'offmap'; at: Vec2 }
@@ -285,6 +285,11 @@ export class World {
   }
 
   /** Drain events accumulated since the last call. */
+  /** Pending events without clearing them — rules layers tally before the renderer drains. */
+  peekEvents(): readonly WorldEvent[] {
+    return this.events;
+  }
+
   drainEvents(): WorldEvent[] {
     const e = this.events;
     this.events = [];
@@ -730,7 +735,7 @@ export class World {
       }
     }
     d.hp = Math.max(0, d.hp - dmg);
-    this.events.push({ kind: 'damage', target: d.id, amount: dmg, shieldAbsorbed: absorbed, hpAfter: d.hp, at });
+    this.events.push({ kind: 'damage', target: d.id, amount: dmg, shieldAbsorbed: absorbed, hpAfter: d.hp, at, by });
     if (d.hp <= 0) {
       d.alive = false;
       this.events.push({ kind: 'kill', target: d.id, by });

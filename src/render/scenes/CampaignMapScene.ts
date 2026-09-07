@@ -7,6 +7,9 @@ import type { BattleSetup } from '../setup';
 import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { playMusic } from '../music';
+import { loadRun, savedLevelId } from '../campaignRun';
+import { commanderById } from '../../core/campaign/commanders';
+import { difficultyById } from '../../core/campaign/difficulty';
 
 /**
  * Level select on the painted campaign map. Nodes come from the white route
@@ -76,10 +79,15 @@ export class CampaignMapScene extends Phaser.Scene {
     this.add.text(NATIVE_W / 2, NATIVE_H - 46, '←→ choose   ENTER deploy   ESC back', { fontFamily: 'monospace', fontSize: '13px', color: hex(PAL.uiTextDim) }).setOrigin(0.5, 0).setDepth(9);
     this.add.text(NATIVE_W / 2, 24, 'C A M P A I G N', { fontFamily: 'monospace', fontSize: '28px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 6 }).setOrigin(0.5, 0).setDepth(9);
 
-    // Portrait of the player's commander, if the sheet exists.
-    if (atlasHas('portrait.p1')) {
-      this.add.image(NATIVE_W / 2 - 400 + 52, NATIVE_H - 150 + 59, 'portrait.p1').setDepth(9).setDisplaySize(96, 96);
-    }
+    // Commander portrait and run summary.
+    const cmd = commanderById(this.setup.commanderId);
+    const diff = difficultyById(this.setup.difficultyId);
+    if (atlasHas(cmd.portrait)) this.add.image(NATIVE_W / 2 - 400 + 52, NATIVE_H - 150 + 59, cmd.portrait).setDepth(9).setDisplaySize(96, 96);
+    const run = loadRun();
+    const summary = run
+      ? `${cmd.name} · ${diff.name} · ${run.levelsCleared}/${LEVELS.length} cleared · ${Math.floor(run.timeSec / 60)}:${String(Math.floor(run.timeSec % 60)).padStart(2, '0')} · ${run.shotsFired ? Math.round((100 * run.hits) / run.shotsFired) : 0}% hits · ${run.retries} retries`
+      : `${cmd.name} · ${diff.name}`;
+    this.add.text(NATIVE_W / 2, 70, summary, { fontFamily: 'monospace', fontSize: '15px', color: hex(PAL.uiText), backgroundColor: hex(PAL.uiInk) }).setOrigin(0.5, 0).setDepth(9).setPadding(8, 4, 8, 4);
 
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => this.onKey(e));
     this.input.once('pointerdown', () => this.sfx.unlock());
@@ -93,12 +101,8 @@ export class CampaignMapScene extends Phaser.Scene {
   }
 
   private savedLevelIndex(): number {
-    try {
-      const v = localStorage.getItem('tankwars.campaign.level');
-      const i = LEVELS.findIndex((l) => l.id === v);
-      if (i >= 0) return i;
-    } catch { /* private mode */ }
-    return 0;
+    const i = LEVELS.findIndex((l) => l.id === savedLevelId());
+    return i >= 0 ? i : 0;
   }
 
   private onKey(e: KeyboardEvent): void {
@@ -118,6 +122,7 @@ export class CampaignMapScene extends Phaser.Scene {
       case 'Space':
         this.sfx.play('select');
         this.scene.start('battle', { ...this.setup, kind: 'campaign', levelId: LEVELS[this.sel].id, seed: (Date.now() ^ 0x5f3759df) & 0x7fffffff });
+        // (commanderId / difficultyId ride along in the setup)
         return;
       case 'Escape':
         this.scene.start('menu');

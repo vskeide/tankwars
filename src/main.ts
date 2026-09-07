@@ -5,6 +5,7 @@ import { MenuScene } from './render/scenes/MenuScene';
 import { BattleScene } from './render/scenes/BattleScene';
 import { ShopScene } from './render/scenes/ShopScene';
 import { CampaignMapScene } from './render/scenes/CampaignMapScene';
+import { CommanderScene } from './render/scenes/CommanderScene';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -23,7 +24,7 @@ const game = new Phaser.Game({
   // In dev the preview pane is often unfocused and throttles requestAnimationFrame
   // to a crawl; a timer-driven loop keeps the simulation and smoke tests running.
   fps: import.meta.env.DEV ? { forceSetTimeOut: true, target: 60 } : undefined,
-  scene: [BootScene, MenuScene, BattleScene, ShopScene, CampaignMapScene],
+  scene: [BootScene, MenuScene, BattleScene, ShopScene, CampaignMapScene, CommanderScene],
 });
 
 // Exposed for debugging and automated smoke tests.

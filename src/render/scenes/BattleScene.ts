@@ -21,6 +21,8 @@ import { CLASS_BARREL, ENEMY_PARTS, ensureTeamTexture, hasParts, partMetrics } f
 import { sliceBiome } from '../biomeBackdrop';
 import { playMusic, toggleMusic } from '../music';
 import { settings } from '../settings';
+import { addScore, clearRun, loadRun, saveRun, setSavedLevel } from '../campaignRun';
+import { scoreRun, toHighScore, type RunStats } from '../../core/campaign/score';
 import { ensureTankTextures, hullTextureKey, barrelTextureKey } from '../sprites';
 import type { BattleSetup } from '../setup';
 
@@ -131,7 +133,7 @@ export class BattleScene extends Phaser.Scene {
     const common = { players: s.players, rounds: s.rounds, seed: s.seed, width: TERRAIN_W, height: TERRAIN_H, terrainStyle: s.terrainStyle };
     if (s.kind === 'campaign') {
       const humans = s.players.filter((p) => !p.isBot).slice(0, 2);
-      this.campaign = new CampaignLevel({ levelId: s.levelId ?? LEVELS[0].id, players: humans.length ? humans : s.players.slice(0, 1), seed: s.seed, width: TERRAIN_W, height: TERRAIN_H });
+      this.campaign = new CampaignLevel({ levelId: s.levelId ?? LEVELS[0].id, players: humans.length ? humans : s.players.slice(0, 1), seed: s.seed, width: TERRAIN_W, height: TERRAIN_H, commanderId: s.commanderId, difficultyId: s.difficultyId });
       this.world = this.campaign.world;
     } else if (s.kind === 'arena') {
       this.arena = new ArenaMatch({ ...common, crateInterval: 9, windInterval: 12 });
@@ -908,18 +910,55 @@ export class BattleScene extends Phaser.Scene {
   private showCampaignEnd(won: boolean): void {
     const c = this.campaign!;
     const next = c.nextLevelId();
-    if (won && next) {
-      try { localStorage.setItem('tankwars.campaign.level', next); } catch { /* private mode */ }
+    // Fold this level's tallies into the persisted run.
+    const run: RunStats = loadRun() ?? { commander: c.commander.id, difficulty: c.difficulty.id, timeSec: 0, shotsFired: 0, hits: 0, damageTaken: 0, crates: 0, retries: 0, levelsCleared: 0, startedAt: Date.now() };
+    run.timeSec += c.stats.timeSec;
+    run.shotsFired += c.stats.shotsFired;
+    run.hits += c.stats.hits;
+    run.damageTaken += c.stats.damageTaken;
+    run.crates += c.stats.crates;
+    const ironmanOver = !won && c.difficulty.ironman;
+    if (won) {
+      run.levelsCleared = Math.max(run.levelsCleared, LEVELS.findIndex((l) => l.id === c.level.id) + 1);
+      if (next) setSavedLevel(next);
+    } else run.retries += 1;
+    saveRun(run);
+
+    const items: Phaser.GameObjects.GameObject[] = [];
+    items.push(this.add.graphics().fillStyle(PAL.uiInk, 0.88).fillRect(0, 0, NATIVE_W, NATIVE_H));
+    const finished = won && !next;
+    const titleText = finished ? 'CAMPAIGN COMPLETE' : won ? `${c.level.name.toUpperCase()} CLEARED` : ironmanOver ? 'IRONMAN RUN OVER' : 'MISSION FAILED';
+    items.push(this.add.text(NATIVE_W / 2, 150, titleText, { fontFamily: 'monospace', fontSize: '36px', color: hex(won ? PAL.glow : PAL.uiDanger), stroke: hex(PAL.uiInk), strokeThickness: 5 }).setOrigin(0.5));
+
+    const acc = c.stats.shotsFired ? Math.round((100 * c.stats.hits) / c.stats.shotsFired) : 0;
+    const lvl = `This level:  ${c.stats.timeSec.toFixed(0)} s  ·  ${c.stats.shotsFired} shots, ${acc}% hits  ·  ${Math.round(c.stats.damageTaken)} damage taken  ·  ${c.stats.crates} crates`;
+    items.push(this.add.text(NATIVE_W / 2, 210, lvl, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText) }).setOrigin(0.5));
+    const runAcc = run.shotsFired ? Math.round((100 * run.hits) / run.shotsFired) : 0;
+    const runLine = `Run (${c.commander.name}, ${c.difficulty.name}):  ${run.levelsCleared}/${LEVELS.length} levels  ·  ${Math.floor(run.timeSec / 60)}:${String(Math.floor(run.timeSec % 60)).padStart(2, '0')}  ·  ${runAcc}% hits  ·  ${Math.round(run.damageTaken)} damage  ·  ${run.retries} retries`;
+    items.push(this.add.text(NATIVE_W / 2, 240, runLine, { fontFamily: 'monospace', fontSize: '15px', color: hex(PAL.uiTextDim) }).setOrigin(0.5));
+
+    if (finished || ironmanOver) {
+      const b = scoreRun(run, LEVELS.length);
+      const rank = finished ? addScore(toHighScore(run, b)) : 0;
+      const rows = [
+        ['Levels cleared', b.levels], ['Time bonus', b.time], ['Accuracy', b.accuracy], ['Damage taken', b.damage], ['Crates', b.crates], ['Retries', b.retries],
+      ];
+      const table = rows.map(([k, v]) => `${String(k).padEnd(16)} ${String(v).padStart(7)}`).join('\n') + `\n${'—'.repeat(24)}\n${'Subtotal'.padEnd(16)} ${String(b.subtotal).padStart(7)}\n${`× ${c.difficulty.name}`.padEnd(16)} ${String(b.multiplier).padStart(7)}`;
+      items.push(this.add.text(NATIVE_W / 2, 300, table, { fontFamily: 'monospace', fontSize: '18px', color: hex(PAL.uiText), lineSpacing: 4 }).setOrigin(0.5, 0));
+      items.push(this.add.text(NATIVE_W / 2, 560, `SCORE  ${b.total}${rank ? `   ·   high score #${rank}` : ''}`, { fontFamily: 'monospace', fontSize: '34px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 5 }).setOrigin(0.5, 0));
+      clearRun();
+    } else if (!won) {
+      items.push(this.add.text(NATIVE_W / 2, 300, c.level.brief, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText) }).setOrigin(0.5));
+    } else {
+      items.push(this.add.text(NATIVE_W / 2, 300, `+${c.level.reward} credits`, { fontFamily: 'monospace', fontSize: '18px', color: hex(PAL.uiText) }).setOrigin(0.5));
     }
-    const bg = this.add.graphics().fillStyle(PAL.uiInk, 0.85).fillRect(0, 0, NATIVE_W, NATIVE_H);
-    const title = this.add.text(NATIVE_W / 2, 260, won ? (next ? `${c.level.name.toUpperCase()} CLEARED` : 'CAMPAIGN COMPLETE') : 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '32px', color: hex(won ? PAL.glow : PAL.uiDanger), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
-    const sub = this.add.text(NATIVE_W / 2, 320, won ? `+${c.level.reward} credits` : c.level.brief, { fontFamily: 'monospace', fontSize: '18px', color: hex(PAL.uiText) }).setOrigin(0.5);
-    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 60, won ? (next ? 'ENTER — campaign map     ESC — menu' : 'ENTER — menu') : 'ENTER — retry     ESC — menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
-    this.overlay.add([bg, title, sub, hint]).setVisible(true);
+    const hintText = finished || ironmanOver ? 'ENTER — commanders     ESC — menu' : won ? 'ENTER — campaign map     ESC — menu' : 'ENTER — retry     ESC — menu';
+    items.push(this.add.text(NATIVE_W / 2, NATIVE_H - 60, hintText, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5));
+    this.overlay.add(items).setVisible(true);
     this.paused = true;
     this.input.keyboard!.once('keydown-ENTER', () => {
-      if (won && next) this.scene.start('campaignMap', { ...this.setup, levelId: next });
-      else if (won) this.scene.start('menu');
+      if (finished || ironmanOver) this.scene.start('commander', { ...this.setup });
+      else if (won && next) this.scene.start('campaignMap', { ...this.setup, levelId: next });
       else this.scene.start('battle', { ...this.setup, seed: (this.setup.seed * 17 + 3) & 0x7fffffff });
     });
   }

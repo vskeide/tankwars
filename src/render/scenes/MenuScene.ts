@@ -234,7 +234,7 @@ export class MenuScene extends Phaser.Scene {
     this.setup.seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) & 0x7fffffff;
     if (this.setup.kind === 'campaign') {
       this.setup.levelId = this.savedLevel();
-      this.scene.start('campaignMap', structuredClone(this.setup));
+      this.scene.start('commander', structuredClone(this.setup));
       return;
     }
     this.scene.start('battle', structuredClone(this.setup));
