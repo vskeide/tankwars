@@ -5,6 +5,8 @@
 export interface Settings {
   /** Display scale of tank sprites; hitboxes follow. 1 = as drawn. */
   tankScale: number;
+  /** Turn-based firing: set a power number, or hold fire to charge like Arena. */
+  chargeFire: boolean;
 }
 
 export const TANK_SIZES: { label: string; scale: number }[] = [
@@ -15,7 +17,7 @@ export const TANK_SIZES: { label: string; scale: number }[] = [
 ];
 
 const KEY = 'tankwars.settings';
-let current: Settings = { tankScale: 1 };
+let current: Settings = { tankScale: 1, chargeFire: false };
 try {
   const raw = localStorage.getItem(KEY);
   if (raw) current = { ...current, ...(JSON.parse(raw) as Partial<Settings>) };

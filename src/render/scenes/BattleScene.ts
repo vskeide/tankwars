@@ -391,7 +391,8 @@ export class BattleScene extends Phaser.Scene {
     const facing = t.facing;
     if (v.parts) {
       v.turret!.setVisible(true);
-      const rot = t.tilt * 0.6;
+      // Hull follows the slope (clamped); the turret rides with it, the barrel stays absolute.
+      const rot = Math.max(-0.45, Math.min(0.45, t.tilt));
       const ca = Math.cos(rot);
       const sa = Math.sin(rot);
       const x = Math.round(t.x);
@@ -654,7 +655,21 @@ export class BattleScene extends Phaser.Scene {
     }
     it.aimDelta *= this.aimRamp('t:aim', it.aimDelta !== 0, SIM_DT);
     it.powerDelta *= this.aimRamp('t:pow', it.powerDelta !== 0, SIM_DT);
-    it.fire = raw.fire;
+    if (settings().chargeFire && this.turn) {
+      // Hold to charge: power climbs from 20 while held, release fires.
+      const t = this.turn.currentTank;
+      const prev = this.prevHeld.get(-1) ?? false;
+      let charge = this.charge.get(-1) ?? 0;
+      if (raw.fireHeld) {
+        charge = Math.min(100, (prev ? charge : 20) + 60 * SIM_DT);
+        this.world.setPower(t, charge);
+        it.powerDelta = 0;
+      } else if (prev) it.fire = true;
+      this.charge.set(-1, charge);
+      this.prevHeld.set(-1, raw.fireHeld);
+    } else {
+      it.fire = raw.fire;
+    }
     it.fireHeld = raw.fireHeld;
     it.cycleWeapon = raw.cycleWeapon;
     if (it.aimDelta !== 0 && Math.random() < 0.08) this.sfx.play('aim', 0.6);
@@ -780,7 +795,8 @@ export class BattleScene extends Phaser.Scene {
       const cls = this.world.mode.tankClasses ? ` · ${m.currentTank.cls.name}` : '';
       const fuel = this.world.mode.movement ? ` · fuel ${m.currentTank.fuel}` : '';
       const drive = this.world.mode.movement ? '  A/D drive' : '';
-      return `Round ${m.round}/${this.setup.rounds} · ${this.world.mode.name}${cls}${fuel} · ${m.phase === 'aim' ? `←→ aim  ↑↓ power${drive}  SPACE fire  TAB weapon  H help` : 'firing…'}`;
+      const fireHint = settings().chargeFire ? 'hold SPACE to charge, release to fire' : '↑↓ power  SPACE fire';
+      return `Round ${m.round}/${this.setup.rounds} · ${this.world.mode.name}${cls}${fuel} · ${m.phase === 'aim' ? `←→ aim  ${fireHint}${drive}  TAB weapon  H help` : 'firing…'}`;
     }
     if (this.campaign) {
       const c = this.campaign;

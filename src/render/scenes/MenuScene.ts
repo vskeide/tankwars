@@ -45,7 +45,7 @@ const MODES: ModeOption[] = [
 const DIFFS: Difficulty[] = ['rookie', 'gunner', 'veteran', 'deadeye'];
 const BOT_NAMES = ['Kilo', 'Vex', 'Sable', 'Rook', 'Ember', 'Tarn'];
 
-type Row = 'mode' | 'players' | 'p0' | 'p1' | 'p2' | 'p3' | 'rounds' | 'terrain' | 'size' | 'start';
+type Row = 'mode' | 'players' | 'p0' | 'p1' | 'p2' | 'p3' | 'rounds' | 'terrain' | 'size' | 'fire' | 'start';
 
 export class MenuScene extends Phaser.Scene {
   private setup: BattleSetup = structuredClone(DEFAULT_SETUP);
@@ -74,7 +74,7 @@ export class MenuScene extends Phaser.Scene {
       const t = this.add.image(LAYOUT_W / 2, LAYOUT_H / 2, 'title').setDepth(2);
       t.setScale(Math.max(LAYOUT_W / t.width, LAYOUT_H / t.height));
       this.add.graphics().fillStyle(PAL.uiInk, 0.35).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
-      this.add.graphics().fillStyle(PAL.uiInk, 0.82).fillRoundedRect(30, 50, 480, 216, 4).lineStyle(1, PAL.uiEdge, 0.8).strokeRoundedRect(30, 50, 480, 216, 4).setDepth(3);
+      this.add.graphics().fillStyle(PAL.uiInk, 0.82).fillRoundedRect(30, 50, 480, 232, 4).lineStyle(1, PAL.uiEdge, 0.8).strokeRoundedRect(30, 50, 480, 232, 4).setDepth(3);
     } else {
       this.add.graphics().fillStyle(PAL.uiInk, 0.72).fillRect(0, 0, LAYOUT_W, LAYOUT_H).setDepth(3);
       if (atlasHas('boss.behemoth.r')) {
@@ -141,7 +141,9 @@ export class MenuScene extends Phaser.Scene {
     const r: Row[] = ['mode', 'players'];
     for (let i = 0; i < this.setup.players.length; i++) r.push(`p${i}` as Row);
     if (this.setup.kind !== 'campaign') r.push('rounds', 'terrain');
-    r.push('size', 'start');
+    r.push('size');
+    if (this.setup.kind === 'turn') r.push('fire');
+    r.push('start');
     return r;
   }
 
@@ -174,6 +176,9 @@ export class MenuScene extends Phaser.Scene {
       }
       case 'rounds':
         s.rounds = Math.max(1, Math.min(9, s.rounds + dir));
+        break;
+      case 'fire':
+        updateSettings({ chargeFire: !settings().chargeFire });
         break;
       case 'size': {
         const i = TANK_SIZES.findIndex((t) => t.scale === settings().tankScale);
@@ -289,6 +294,7 @@ export class MenuScene extends Phaser.Scene {
     }
     const size = TANK_SIZES.find((t) => t.scale === settings().tankScale) ?? TANK_SIZES[2];
     line('TANK SIZE', `‹ ${size.label} ›`, 'size');
+    if (s.kind === 'turn') line('FIRE', `‹ ${settings().chargeFire ? 'HOLD SPACE TO CHARGE' : 'SET POWER, TAP SPACE'} ›`, 'fire');
     y += 6;
     line(s.kind === 'campaign' ? 'OPEN CAMPAIGN MAP' : 'START BATTLE', this.row === 'start' ? 'press ENTER' : '', 'start');
 
