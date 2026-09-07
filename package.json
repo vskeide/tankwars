@@ -1,0 +1,20 @@
+{
+  "name": "tankwars",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Turn-based artillery game — a modernised Tank Wars, three modes: classic, modern, advanced",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

@@ -1,0 +1,803 @@
+/**
+ * The simulated battlefield: terrain, tanks, live projectiles, crates and
+ * boss hardpoints, advanced in fixed steps. Rules layers (turn-based match,
+ * real-time arena, campaign levels) sit on top and decide WHO may act WHEN;
+ * the World only knows physics and damage.
+ *
+ * Deterministic for a given seed and input sequence. No Phaser, no DOM.
+ */
+import { Rng } from './rng';
+import { Terrain } from './terrain';
+import type { GameMode } from './modes';
+import type { TankClass } from './tanks';
+import { weaponById, defaultWeaponId, type Weapon } from './weapons';
+import { GRAVITY, SIM_DT, blastFalloff, launchVelocity, stepProjectile, type ProjectileState } from './physics';
+import type { Difficulty, Vec2 } from './types';
+
+// ---------------------------------------------------------------------------
+// Entities
+// ---------------------------------------------------------------------------
+
+/** Anything that can take blast damage and be targeted. */
+export interface Damageable {
+  id: number;
+  kind: 'tank' | 'hardpoint' | 'crate';
+  x: number;
+  y: number;
+  halfWidth: number;
+  halfHeight: number;
+  hp: number;
+  maxHp: number;
+  alive: boolean;
+  /** Owner index for tanks; boss index for hardpoints; -1 otherwise. */
+  owner: number;
+}
+
+export interface Tank extends Damageable {
+  kind: 'tank';
+  index: number;
+  name: string;
+  colour: number;
+  isBot: boolean;
+  difficulty: Difficulty;
+  cls: TankClass;
+  /** Sprite id from the asset atlas, or '' for the procedural hull. */
+  skin: string;
+
+  /** Hull tilt in radians, from the terrain slope. */
+  tilt: number;
+  /** Vertical velocity while airborne. */
+  vy: number;
+  airborne: boolean;
+  facing: 1 | -1;
+
+  shield: number;
+  /** Barrel angle in degrees from +X (0 = right, 90 = up, 180 = left). */
+  angle: number;
+  /** 0..100 */
+  power: number;
+  fuel: number;
+  movedThisTurn: boolean;
+  /** Seconds until this tank may fire again (arena mode). */
+  cooldown: number;
+
+  credits: number;
+  /** weapon id -> shots remaining (-1 = unlimited). */
+  ammo: Map<string, number>;
+  selectedWeapon: string;
+
+  kills: number;
+  roundsWon: number;
+}
+
+export interface Projectile extends ProjectileState {
+  id: number;
+  owner: number;
+  weapon: Weapon;
+  /** 0 for the shell that left the barrel, 1+ for submunitions. */
+  depth: number;
+  state: 'flying' | 'rolling' | 'tunnelling' | 'done';
+  /** Highest point reached, for apex-splitting weapons. */
+  apexY: number;
+  /** Grace steps before it can hit its own shooter. */
+  grace: number;
+  /** Rolling state. */
+  rollDir: number;
+  rollSteps: number;
+  tunnelLeft: number;
+  tunnelDir: Vec2;
+  /** Recent positions for the renderer's trail. */
+  trail: Vec2[];
+}
+
+export type CrateKind = 'ammo' | 'repair' | 'shield' | 'credits' | 'weapon';
+
+export interface Crate extends Damageable {
+  kind: 'crate';
+  crateKind: CrateKind;
+  /** Weapon id for 'weapon' / 'ammo' crates. */
+  payload: string;
+  vy: number;
+  landed: boolean;
+  /** Seconds left before it despawns. */
+  ttl: number;
+}
+
+/** A boss is a large scripted entity made of hardpoints. */
+export interface Hardpoint extends Damageable {
+  kind: 'hardpoint';
+  bossIndex: number;
+  name: string;
+  /** Offset from the boss anchor. */
+  dx: number;
+  dy: number;
+  /** Does destroying this end the boss? */
+  core: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Events emitted by a step. The renderer turns these into sound and particles.
+// ---------------------------------------------------------------------------
+
+export type WorldEvent =
+  | { kind: 'launch'; from: Vec2; weapon: Weapon; shooter: number; angle: number }
+  | { kind: 'split'; at: Vec2; count: number; weapon: Weapon }
+  | { kind: 'bounce'; at: Vec2 }
+  | { kind: 'explode'; at: Vec2; radius: number; weapon: Weapon }
+  | { kind: 'fill'; at: Vec2; radius: number }
+  | { kind: 'burn'; at: Vec2; weapon: Weapon }
+  | { kind: 'damage'; target: number; amount: number; shieldAbsorbed: number; hpAfter: number; at: Vec2 }
+  | { kind: 'kill'; target: number; by: number }
+  | { kind: 'land'; tank: number; impactSpeed: number; damage: number }
+  | { kind: 'offmap'; at: Vec2 }
+  | { kind: 'crateSpawn'; crate: number }
+  | { kind: 'crateLand'; crate: number }
+  | { kind: 'cratePickup'; crate: number; tank: number; crateKind: CrateKind; payload: string }
+  | { kind: 'move'; tank: number; dx: number };
+
+// ---------------------------------------------------------------------------
+
+export interface WorldOptions {
+  width: number;
+  height: number;
+  mode: GameMode;
+  seed: number;
+}
+
+/** Arena-mode tank drive speed in px/s. */
+export const DRIVE_SPEED = 140;
+/** Arena-mode barrel rotation speed cap, deg/s. */
+export const AIM_SPEED = 90;
+export const POWER_SPEED = 60;
+
+export class World {
+  readonly width: number;
+  readonly height: number;
+  readonly mode: GameMode;
+  readonly rng: Rng;
+
+  terrain!: Terrain;
+  tanks: Tank[] = [];
+  projectiles: Projectile[] = [];
+  crates: Crate[] = [];
+  hardpoints: Hardpoint[] = [];
+
+  wind = 0;
+  /** Simulated seconds since the round started. */
+  time = 0;
+
+  private nextId = 1;
+  private events: WorldEvent[] = [];
+
+  constructor(opts: WorldOptions) {
+    this.width = opts.width;
+    this.height = opts.height;
+    this.mode = opts.mode;
+    this.rng = new Rng(opts.seed);
+  }
+
+  // ---- lifecycle -------------------------------------------------------
+
+  setTerrain(t: Terrain): void {
+    this.terrain = t;
+    this.projectiles = [];
+    this.crates = [];
+    this.time = 0;
+  }
+
+  addTank(setup: {
+    index: number;
+    name: string;
+    colour: number;
+    isBot: boolean;
+    difficulty: Difficulty;
+    cls: TankClass;
+    skin?: string;
+    credits: number;
+  }): Tank {
+    const ammo = new Map<string, number>();
+    ammo.set(defaultWeaponId(), -1);
+    const t: Tank = {
+      id: this.nextId++,
+      kind: 'tank',
+      index: setup.index,
+      name: setup.name,
+      colour: setup.colour,
+      isBot: setup.isBot,
+      difficulty: setup.difficulty,
+      cls: setup.cls,
+      skin: setup.skin ?? '',
+      x: 0,
+      y: 0,
+      halfWidth: setup.cls.halfWidth,
+      halfHeight: setup.cls.halfHeight,
+      hp: setup.cls.hp,
+      maxHp: setup.cls.hp,
+      alive: true,
+      owner: setup.index,
+      tilt: 0,
+      vy: 0,
+      airborne: false,
+      facing: 1,
+      shield: 0,
+      angle: 60,
+      power: 55,
+      fuel: setup.cls.fuel,
+      movedThisTurn: false,
+      cooldown: 0,
+      credits: setup.credits,
+      ammo,
+      selectedWeapon: defaultWeaponId(),
+      kills: 0,
+      roundsWon: 0,
+    };
+    this.tanks.push(t);
+    return t;
+  }
+
+  /** Reset a tank for a new round at column x. */
+  respawnTank(t: Tank, x: number): void {
+    t.x = x;
+    t.hp = t.maxHp;
+    t.alive = true;
+    t.vy = 0;
+    t.airborne = false;
+    t.fuel = t.cls.fuel;
+    t.movedThisTurn = false;
+    t.cooldown = 0;
+    t.shield = this.mode.perks && t.cls.perk.kind === 'shield' ? t.cls.perk.capacity : 0;
+    t.facing = x < this.width / 2 ? 1 : -1;
+    if (!this.mode.retainAim) {
+      t.angle = t.facing === 1 ? 60 : 120;
+      t.power = 55;
+    }
+    // Flatten a shelf so nobody starts on a knife edge, then sit on it.
+    this.terrain.fillCircle(x, this.terrain.surfaceY(x) + 8, 12);
+    this.terrain.carveCircle(x, this.terrain.surfaceY(x) - 30, 26, false);
+    this.snapToGround(t);
+  }
+
+  addHardpoint(h: Omit<Hardpoint, 'id' | 'kind' | 'alive' | 'owner'>): Hardpoint {
+    const hp: Hardpoint = { ...h, id: this.nextId++, kind: 'hardpoint', alive: true, owner: -100 - h.bossIndex };
+    this.hardpoints.push(hp);
+    return hp;
+  }
+
+  /** Drain events accumulated since the last call. */
+  drainEvents(): WorldEvent[] {
+    const e = this.events;
+    this.events = [];
+    return e;
+  }
+
+  get busy(): boolean {
+    return this.projectiles.length > 0 || this.tanks.some((t) => t.alive && t.airborne);
+  }
+
+  aliveTanks(): Tank[] {
+    return this.tanks.filter((t) => t.alive);
+  }
+
+  damageables(): Damageable[] {
+    return [...this.tanks, ...this.hardpoints, ...this.crates];
+  }
+
+  // ---- queries -----------------------------------------------------------
+
+  /** Where a shot leaves the barrel, in world pixels. */
+  muzzle(t: Tank): Vec2 {
+    const a = (t.angle * Math.PI) / 180;
+    const pivotY = t.y - t.cls.halfHeight * 2 - 2;
+    return { x: t.x + Math.cos(a) * t.cls.barrel, y: pivotY - Math.sin(a) * t.cls.barrel };
+  }
+
+  /** Wind as this tank's shells experience it, after any stabiliser perk. */
+  effectiveWind(t: Tank): number {
+    if (this.mode.perks && t.cls.perk.kind === 'stabilised') return this.wind * (1 - t.cls.perk.windReduction);
+    return this.wind;
+  }
+
+  ammoFor(t: Tank, weaponId: string): number {
+    return t.ammo.get(weaponId) ?? 0;
+  }
+
+  rollWind(): void {
+    const u = this.rng.next() * 2 - 1;
+    this.wind = Math.round(Math.sign(u) * Math.pow(Math.abs(u), 1.6) * this.mode.windMax);
+  }
+
+  // ---- tank control --------------------------------------------------------
+
+  aim(t: Tank, angleDeg: number): void {
+    t.angle = Math.max(0, Math.min(180, angleDeg));
+    if (t.angle < 88) t.facing = 1;
+    else if (t.angle > 92) t.facing = -1;
+  }
+
+  setPower(t: Tank, p: number): void {
+    t.power = Math.max(5, Math.min(100, p));
+  }
+
+  selectWeapon(t: Tank, weaponId: string): boolean {
+    if (this.ammoFor(t, weaponId) === 0) return false;
+    t.selectedWeapon = weaponId;
+    return true;
+  }
+
+  cycleWeapon(t: Tank, dir: 1 | -1): void {
+    const ids = [...t.ammo.entries()].filter(([, n]) => n !== 0).map(([id]) => id);
+    if (ids.length === 0) return;
+    const i = ids.indexOf(t.selectedWeapon);
+    t.selectedWeapon = ids[(i + dir + ids.length) % ids.length];
+  }
+
+  /**
+   * Drive by dx pixels along the surface, respecting the hull's climb limit.
+   * `useFuel` is true in turn-based modes. Returns pixels actually moved.
+   */
+  drive(t: Tank, dx: number, useFuel: boolean): number {
+    if (!t.alive || t.airborne) return 0;
+    const dir = Math.sign(dx);
+    if (dir === 0) return 0;
+    let moved = 0;
+    const steps = Math.abs(dx);
+    const whole = Math.floor(steps);
+    const maxClimb = t.cls.perk.kind === 'hover' ? 999 : Math.tan((t.cls.climb * Math.PI) / 180) * 1.5;
+    for (let i = 0; i < whole; i++) {
+      if (useFuel && t.fuel <= 0) break;
+      const nx = t.x + dir;
+      if (nx < 14 || nx > this.terrain.width - 14) break;
+      const hereY = this.terrain.surfaceY(t.x);
+      const nextY = this.terrain.surfaceY(nx);
+      if (hereY - nextY > maxClimb) break; // too steep uphill
+      t.x = nx;
+      if (useFuel) t.fuel -= 1;
+      moved += 1;
+      t.movedThisTurn = true;
+    }
+    if (moved > 0) {
+      // Follow the surface downhill; if the drop is big, go airborne.
+      const surf = this.terrain.surfaceY(t.x);
+      if (surf - t.y > 10) t.airborne = true;
+      else this.snapToGround(t);
+      this.events.push({ kind: 'move', tank: t.index, dx: moved * dir });
+    }
+    return moved * dir;
+  }
+
+  /** Fire the selected weapon. Returns false if no ammo. */
+  fire(t: Tank): boolean {
+    if (!t.alive) return false;
+    const weapon = weaponById(t.selectedWeapon);
+    const n = this.ammoFor(t, weapon.id);
+    if (n === 0) return false;
+    if (n > 0) t.ammo.set(weapon.id, n - 1);
+    if (n === 1) t.selectedWeapon = defaultWeaponId();
+
+    const from = this.muzzle(t);
+    const vel = launchVelocity(t.angle, t.power, weapon.speedScale);
+    this.spawnProjectile(from, vel, weapon, t.index, 0);
+    this.events.push({ kind: 'launch', from, weapon, shooter: t.index, angle: t.angle });
+    return true;
+  }
+
+  private spawnProjectile(pos: Vec2, vel: Vec2, weapon: Weapon, owner: number, depth: number): Projectile {
+    const p: Projectile = {
+      id: this.nextId++,
+      owner,
+      weapon,
+      depth,
+      pos: { ...pos },
+      vel: { ...vel },
+      windFactor: weapon.windFactor,
+      gravityFactor: weapon.gravityFactor,
+      age: 0,
+      state: 'flying',
+      apexY: pos.y,
+      grace: depth === 0 ? 10 : 0,
+      rollDir: 0,
+      rollSteps: 0,
+      tunnelLeft: 0,
+      tunnelDir: { x: 0, y: 1 },
+      trail: [{ ...pos }],
+    };
+    this.projectiles.push(p);
+    return p;
+  }
+
+  // ---- crates ----------------------------------------------------------------
+
+  spawnCrate(x: number, crateKind: CrateKind, payload = ''): Crate {
+    const c: Crate = {
+      id: this.nextId++,
+      kind: 'crate',
+      crateKind,
+      payload,
+      x,
+      y: -20,
+      halfWidth: 12,
+      halfHeight: 12,
+      hp: 1,
+      maxHp: 1,
+      alive: true,
+      owner: -1,
+      vy: 0,
+      landed: false,
+      ttl: 45,
+    };
+    this.crates.push(c);
+    this.events.push({ kind: 'crateSpawn', crate: c.id });
+    return c;
+  }
+
+  // ---- simulation --------------------------------------------------------------
+
+  /** Advance the world by one fixed step. */
+  step(dt = SIM_DT): void {
+    this.time += dt;
+    this.stepProjectiles(dt);
+    this.stepTanks(dt);
+    this.stepCrates(dt);
+  }
+
+  private stepProjectiles(dt: number): void {
+    const wind = this.wind;
+    for (const p of this.projectiles) {
+      if (p.state === 'done') continue;
+      const shooter = this.tanks[p.owner];
+      const w = shooter ? this.effectiveWindFor(shooter) : wind;
+
+      if (p.state === 'rolling') {
+        this.stepRoll(p);
+        continue;
+      }
+      if (p.state === 'tunnelling') {
+        this.stepTunnel(p);
+        continue;
+      }
+
+      stepProjectile(p, w, dt);
+      if (p.grace > 0) p.grace -= 1;
+      if (p.trail.length === 0 || Math.hypot(p.pos.x - p.trail[p.trail.length - 1].x, p.pos.y - p.trail[p.trail.length - 1].y) > 3) {
+        p.trail.push({ ...p.pos });
+        if (p.trail.length > 40) p.trail.shift();
+      }
+
+      // Apex split for cluster / MIRV.
+      const splits = p.weapon.behaviour === 'cluster' || p.weapon.behaviour === 'mirv';
+      if (splits && p.depth === 0 && p.vel.y > 0 && p.age > 0.15) {
+        this.split(p);
+        continue;
+      }
+      if (p.pos.y < p.apexY) p.apexY = p.pos.y;
+
+      // Off map?
+      if (p.pos.x < -120 || p.pos.x > this.width + 120 || p.pos.y > this.height + 60) {
+        p.state = 'done';
+        this.events.push({ kind: 'offmap', at: { ...p.pos } });
+        continue;
+      }
+
+      // Hit a damageable?
+      const hit = this.findHit(p);
+      if (hit) {
+        this.impact(p, hit);
+        continue;
+      }
+
+      // Hit terrain?
+      if (p.weapon.behaviour !== 'railgun' && this.terrain.isSolid(p.pos.x, p.pos.y)) {
+        this.impact(p, null);
+        continue;
+      }
+      // Railguns fly until they hit something or leave; carve as they pass through rock.
+      if (p.weapon.behaviour === 'railgun' && this.terrain.isSolid(p.pos.x, p.pos.y)) {
+        this.terrain.carveCircle(p.pos.x, p.pos.y, 3, false);
+      }
+    }
+    this.projectiles = this.projectiles.filter((p) => p.state !== 'done');
+  }
+
+  private effectiveWindFor(t: Tank): number {
+    return this.effectiveWind(t);
+  }
+
+  private findHit(p: Projectile): Damageable | null {
+    for (const d of this.damageables()) {
+      if (!d.alive) continue;
+      if (d.kind === 'tank' && d.owner === p.owner && p.grace > 0) continue;
+      const cy = d.kind === 'tank' ? d.y - d.halfHeight : d.y;
+      if (
+        p.pos.x >= d.x - d.halfWidth &&
+        p.pos.x <= d.x + d.halfWidth &&
+        p.pos.y >= cy - d.halfHeight &&
+        p.pos.y <= cy + d.halfHeight
+      ) {
+        return d;
+      }
+    }
+    return null;
+  }
+
+  private split(p: Projectile): void {
+    const w = p.weapon;
+    p.state = 'done';
+    this.events.push({ kind: 'split', at: { ...p.pos }, count: w.submunitions, weapon: w });
+    for (let i = 0; i < w.submunitions; i++) {
+      const spread = w.behaviour === 'mirv' ? 0.28 : 0.55;
+      const f = w.submunitions === 1 ? 0 : i / (w.submunitions - 1) - 0.5;
+      const vel: Vec2 = {
+        x: p.vel.x * (1 + f * spread) + (w.behaviour === 'cluster' ? this.rng.range(-25, 25) : 0),
+        y: p.vel.y + (w.behaviour === 'cluster' ? this.rng.range(-40, 10) : f * 30),
+      };
+      this.spawnProjectile(p.pos, vel, w, p.owner, p.depth + 1);
+    }
+  }
+
+  private impact(p: Projectile, hit: Damageable | null): void {
+    const w = p.weapon;
+    const at = { ...p.pos };
+    switch (w.behaviour) {
+      case 'roller':
+        if (!hit) {
+          p.state = 'rolling';
+          p.rollSteps = 0;
+          p.pos.y = this.terrain.surfaceY(p.pos.x) - 2;
+          const l = this.terrain.surfaceY(p.pos.x - 3);
+          const r = this.terrain.surfaceY(p.pos.x + 3);
+          p.rollDir = r > l ? 1 : l > r ? -1 : Math.sign(p.vel.x) || 1;
+          this.events.push({ kind: 'bounce', at });
+          return;
+        }
+        break;
+      case 'digger':
+        if (!hit) {
+          p.state = 'tunnelling';
+          p.tunnelLeft = 34;
+          const len = Math.hypot(p.vel.x, p.vel.y) || 1;
+          p.tunnelDir = { x: p.vel.x / len, y: p.vel.y / len };
+          return;
+        }
+        break;
+      case 'napalm':
+        this.napalm(p);
+        p.state = 'done';
+        return;
+    }
+    p.state = 'done';
+    if (w.id === 'earthmover') {
+      this.terrain.fillCircle(at.x, at.y + w.radius * 0.45, w.radius);
+      this.events.push({ kind: 'fill', at, radius: w.radius });
+      this.applyBlast(at, w, p.owner);
+      this.wakeTanks();
+    } else if (w.id === 'airburst') {
+      const up = { x: at.x, y: at.y - 10 };
+      this.terrain.carveCircle(up.x, up.y, w.radius * 0.35);
+      this.events.push({ kind: 'explode', at: up, radius: w.radius, weapon: w });
+      this.applyBlast(up, w, p.owner);
+      this.wakeTanks();
+    } else {
+      this.explode(at, w, p.owner);
+    }
+  }
+
+  private stepRoll(p: Projectile): void {
+    p.rollSteps += 1;
+    const x = p.pos.x;
+    const here = this.terrain.surfaceY(x);
+    const ahead = this.terrain.surfaceY(x + p.rollDir * 3);
+    // Roll until we would go uphill, or have rolled a long way.
+    if (ahead < here - 2 || p.rollSteps > 700 || x < 2 || x > this.width - 2) {
+      p.state = 'done';
+      this.explode({ x, y: here - 1 }, p.weapon, p.owner);
+      return;
+    }
+    p.pos.x += p.rollDir * 1.4;
+    p.pos.y = this.terrain.surfaceY(p.pos.x) - 2;
+    if (p.rollSteps % 3 === 0) {
+      p.trail.push({ ...p.pos });
+      if (p.trail.length > 40) p.trail.shift();
+    }
+    const hit = this.findHit(p);
+    if (hit) {
+      p.state = 'done';
+      this.explode({ ...p.pos }, p.weapon, p.owner);
+    }
+  }
+
+  private stepTunnel(p: Projectile): void {
+    p.pos.x += p.tunnelDir.x * 1.2;
+    p.pos.y += p.tunnelDir.y * 1.2;
+    this.terrain.carveCircle(p.pos.x, p.pos.y, 4, false);
+    p.tunnelLeft -= 1;
+    const hit = this.findHit(p);
+    const outside = !this.terrain.isSolid(p.pos.x + p.tunnelDir.x * 5, p.pos.y + p.tunnelDir.y * 5);
+    if (p.tunnelLeft <= 0 || hit || outside || p.pos.y > this.height - 4) {
+      p.state = 'done';
+      this.explode({ ...p.pos }, p.weapon, p.owner);
+    }
+  }
+
+  private napalm(p: Projectile): void {
+    const w = p.weapon;
+    // Burning fluid runs downhill from the impact in several streams.
+    for (let i = 0; i < w.submunitions; i++) {
+      let x = p.pos.x + this.rng.range(-14, 14);
+      let y = this.terrain.surfaceY(x) - 2;
+      for (let k = 0; k < 40 + i * 6; k++) {
+        const l = this.terrain.surfaceY(x - 2);
+        const r = this.terrain.surfaceY(x + 2);
+        const here = this.terrain.surfaceY(x);
+        if (l >= here && r >= here) break;
+        x += r < l ? 1.6 : -1.6;
+        if (x < 0 || x >= this.width) break;
+        y = this.terrain.surfaceY(x) - 2;
+      }
+      const at = { x, y };
+      this.terrain.carveCircle(x, y, 4, true);
+      this.applyBlast(at, w, p.owner);
+      this.events.push({ kind: 'burn', at, weapon: w });
+    }
+    this.wakeTanks();
+  }
+
+  private explode(at: Vec2, w: Weapon, owner: number): void {
+    this.terrain.carveCircle(at.x, at.y, w.radius);
+    this.events.push({ kind: 'explode', at, radius: w.radius, weapon: w });
+    this.applyBlast(at, w, owner);
+    if (this.mode.terrainCollapse) this.terrain.settle(at.x - w.radius - 2, at.x + w.radius + 2);
+    this.wakeTanks();
+  }
+
+  private applyBlast(at: Vec2, w: Weapon, owner: number): void {
+    for (const d of this.damageables()) {
+      if (!d.alive) continue;
+      const cy = d.kind === 'tank' ? d.y - d.halfHeight : d.y;
+      const dx = Math.max(Math.abs(at.x - d.x) - d.halfWidth, 0);
+      const dy = Math.max(Math.abs(at.y - cy) - d.halfHeight, 0);
+      const f = blastFalloff(Math.hypot(dx, dy), w.radius);
+      if (f <= 0) continue;
+
+      let dmg = w.damage * f;
+      if (d.kind === 'tank') {
+        const t = d as Tank;
+        dmg *= t.cls.armour;
+        if (this.mode.perks && t.cls.perk.kind === 'dugIn' && !t.movedThisTurn) dmg *= 1 - t.cls.perk.reduction;
+      }
+      dmg = Math.round(dmg);
+      if (dmg <= 0) continue;
+      this.damage(d, dmg, owner, at);
+    }
+  }
+
+  damage(d: Damageable, dmg: number, by: number, at: Vec2): void {
+    let absorbed = 0;
+    if (d.kind === 'tank') {
+      const t = d as Tank;
+      if (t.shield > 0) {
+        absorbed = Math.min(t.shield, dmg);
+        t.shield -= absorbed;
+        dmg -= absorbed;
+      }
+    }
+    d.hp = Math.max(0, d.hp - dmg);
+    this.events.push({ kind: 'damage', target: d.id, amount: dmg, shieldAbsorbed: absorbed, hpAfter: d.hp, at });
+    if (d.hp <= 0) {
+      d.alive = false;
+      this.events.push({ kind: 'kill', target: d.id, by });
+      const killer = this.tanks[by];
+      if (d.kind === 'tank' && killer && killer.index !== d.owner) {
+        killer.kills += 1;
+        killer.credits += this.mode.killReward;
+      }
+    }
+  }
+
+  // ---- tanks: gravity and ground -----------------------------------------------
+
+  /** Terrain changed: any tank now hanging in the air starts to fall. */
+  private wakeTanks(): void {
+    for (const t of this.tanks) {
+      if (!t.alive || t.airborne) continue;
+      if (this.terrain.surfaceY(t.x) > t.y + 1) {
+        t.airborne = true;
+        t.vy = 0;
+      }
+    }
+  }
+
+  private stepTanks(dt: number): void {
+    for (const t of this.tanks) {
+      if (!t.alive) continue;
+      if (t.cooldown > 0) t.cooldown = Math.max(0, t.cooldown - dt);
+      if (!t.airborne) continue;
+      const startY = t.y;
+      t.vy += GRAVITY * dt;
+      t.y += t.vy * dt;
+      const surf = this.terrain.surfaceY(t.x);
+      if (t.y >= surf) {
+        t.y = surf;
+        t.airborne = false;
+        const speed = t.vy;
+        t.vy = 0;
+        t.tilt = this.terrain.surfaceAngle(t.x, t.cls.halfWidth);
+        let dmg = 0;
+        if (this.mode.fallDamage && t.cls.perk.kind !== 'hover' && speed > 120) {
+          dmg = Math.round(Math.min(40, (speed - 120) * 0.12));
+          if (dmg > 0) this.damage(t, dmg, -1, { x: t.x, y: t.y });
+        }
+        this.events.push({ kind: 'land', tank: t.index, impactSpeed: speed, damage: dmg });
+      } else if (t.y >= this.height) {
+        // Fell out of the world.
+        t.y = this.height;
+        t.airborne = false;
+        this.damage(t, t.hp + t.shield, -1, { x: t.x, y: t.y });
+      }
+      void startY;
+    }
+  }
+
+  snapToGround(t: Tank): void {
+    t.y = Math.min(this.terrain.surfaceY(t.x), this.terrain.height - 1);
+    t.airborne = false;
+    t.vy = 0;
+    t.tilt = this.terrain.surfaceAngle(t.x, t.cls.halfWidth);
+  }
+
+  // ---- crates ------------------------------------------------------------------
+
+  private stepCrates(dt: number): void {
+    for (const c of this.crates) {
+      if (!c.alive) continue;
+      if (!c.landed) {
+        // Parachute: slow constant descent.
+        c.vy = 55;
+        c.y += c.vy * dt;
+        const surf = this.terrain.surfaceY(c.x);
+        if (c.y + c.halfHeight >= surf) {
+          c.y = surf - c.halfHeight;
+          c.landed = true;
+          this.events.push({ kind: 'crateLand', crate: c.id });
+        }
+      } else {
+        // Follow the ground if it disappears.
+        const surf = this.terrain.surfaceY(c.x);
+        if (c.y + c.halfHeight < surf - 1) c.y = Math.min(c.y + 200 * dt, surf - c.halfHeight);
+        c.ttl -= dt;
+        if (c.ttl <= 0) c.alive = false;
+      }
+      // Pickup by overlap.
+      for (const t of this.tanks) {
+        if (!t.alive) continue;
+        if (Math.abs(t.x - c.x) < t.halfWidth + c.halfWidth && Math.abs(t.y - t.halfHeight - c.y) < t.halfHeight + c.halfHeight) {
+          this.pickup(c, t);
+          break;
+        }
+      }
+    }
+    this.crates = this.crates.filter((c) => c.alive);
+  }
+
+  private pickup(c: Crate, t: Tank): void {
+    c.alive = false;
+    switch (c.crateKind) {
+      case 'repair':
+        t.hp = Math.min(t.maxHp, t.hp + Math.round(t.maxHp * 0.4));
+        break;
+      case 'shield':
+        t.shield = Math.max(t.shield, 40);
+        break;
+      case 'credits':
+        t.credits += 800;
+        break;
+      case 'ammo':
+      case 'weapon': {
+        const w = weaponById(c.payload || 'heavy');
+        const have = t.ammo.get(w.id) ?? 0;
+        t.ammo.set(w.id, have < 0 ? -1 : have + Math.max(1, Math.ceil(w.ammoPerBuy / 2)));
+        break;
+      }
+    }
+    this.events.push({ kind: 'cratePickup', crate: c.id, tank: t.index, crateKind: c.crateKind, payload: c.payload });
+  }
+}
