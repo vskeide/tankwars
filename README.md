@@ -4,7 +4,7 @@ A modern take on *Tank Wars* (DOS, 1991): turn-based artillery with destructible
 wind, a between-round shop — plus tank classes, fifteen weapons, a real-time hotseat
 arena for up to four players on one keyboard, and (coming) a campaign with bosses.
 
-16-bit pixel art at 640×360, scaled 3× to 1080p. Browser only, no install.
+16-bit pixel art on a native 1080p grid, sprites at 2×. Browser only, no install.
 
 ## Modes
 

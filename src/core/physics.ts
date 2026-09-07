@@ -4,9 +4,16 @@ import type { Terrain } from './terrain';
 /** Pixels per second squared. Tuned so a full-power shot arcs across a screen. */
 export const GRAVITY = 220;
 
-/** Launch-speed multiplier applied on top of each weapon's speedScale. Max-power
- *  range at 45° is (100·3.1·SPEED)²/GRAVITY ≈ 920 px — most of a 960-px map. */
-export const SPEED = 1.45;
+/**
+ * World pixels per design unit. Weapon radii, hitboxes, drive speeds and the
+ * like are authored in design units (a tank ≈ 57 units wide) and scaled by
+ * UNIT into world pixels, so the balance numbers stay readable.
+ */
+export const UNIT = 2;
+
+/** Launch-speed multiplier on top of each weapon's speedScale. Max-power range
+ *  at 45° is (100·3.1·SPEED)²/GRAVITY ≈ 1800 px — most of a 1920-px map. */
+export const SPEED = 2.05;
 
 /** Fixed simulation step. Trajectories are deterministic and replayable. */
 export const SIM_DT = 1 / 120;

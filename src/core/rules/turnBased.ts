@@ -89,7 +89,7 @@ export class TurnBasedMatch {
       const j = this.rng.int(0, i);
       [order[i], order[j]] = [order[j], order[i]];
     }
-    const margin = 90;
+    const margin = 180;
     const span = this.config.width - margin * 2;
     order.forEach((tankIndex, slot) => {
       const centre = margin + (span * (slot + 0.5)) / n;
@@ -117,7 +117,7 @@ export class TurnBasedMatch {
       if (intent.cycleWeapon !== 0) w.cycleWeapon(t, intent.cycleWeapon);
       if (intent.moveX !== 0 && this.mode.movement) {
         // Accumulate fractional pixels so slow drives still move.
-        this.driveAccum += intent.moveX * 90 * dt;
+        this.driveAccum += intent.moveX * 180 * dt;
         const whole = Math.trunc(this.driveAccum);
         if (whole !== 0) {
           w.drive(t, whole, true);

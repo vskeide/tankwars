@@ -11,7 +11,7 @@ import { Terrain } from './terrain';
 import type { GameMode } from './modes';
 import type { TankClass } from './tanks';
 import { weaponById, defaultWeaponId, type Weapon } from './weapons';
-import { GRAVITY, SIM_DT, blastFalloff, launchVelocity, stepProjectile, type ProjectileState } from './physics';
+import { GRAVITY, SIM_DT, UNIT, blastFalloff, launchVelocity, stepProjectile, type ProjectileState } from './physics';
 import type { Difficulty, Vec2 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ export interface WorldOptions {
 }
 
 /** Arena-mode tank drive speed in px/s. */
-export const DRIVE_SPEED = 190;
+export const DRIVE_SPEED = 170 * UNIT;
 /** Arena-mode barrel rotation speed cap, deg/s. */
 export const AIM_SPEED = 90;
 export const POWER_SPEED = 60;
@@ -219,8 +219,8 @@ export class World {
       skin: setup.skin ?? '',
       x: 0,
       y: 0,
-      halfWidth: setup.cls.halfWidth,
-      halfHeight: setup.cls.halfHeight,
+      halfWidth: setup.cls.halfWidth * UNIT,
+      halfHeight: setup.cls.halfHeight * UNIT,
       hp: setup.cls.hp,
       maxHp: setup.cls.hp,
       alive: true,
@@ -262,8 +262,8 @@ export class World {
       t.power = 55;
     }
     // Flatten a shelf so nobody starts on a knife edge, then sit on it.
-    this.terrain.fillCircle(x, this.terrain.surfaceY(x) + 8, 12);
-    this.terrain.carveCircle(x, this.terrain.surfaceY(x) - 30, 26, false);
+    this.terrain.fillCircle(x, this.terrain.surfaceY(x) + 8 * UNIT, 12 * UNIT);
+    this.terrain.carveCircle(x, this.terrain.surfaceY(x) - 30 * UNIT, 26 * UNIT, false);
     this.snapToGround(t);
   }
 
@@ -297,8 +297,9 @@ export class World {
   /** Where a shot leaves the barrel, in world pixels. */
   muzzle(t: Tank): Vec2 {
     const a = (t.angle * Math.PI) / 180;
-    const pivotY = t.y - t.cls.halfHeight * 2 - 2;
-    return { x: t.x + Math.cos(a) * t.cls.barrel, y: pivotY - Math.sin(a) * t.cls.barrel };
+    const pivotY = t.y - t.halfHeight * 2 - 2;
+    const len = t.cls.barrel * UNIT;
+    return { x: t.x + Math.cos(a) * len, y: pivotY - Math.sin(a) * len };
   }
 
   /** Wind as this tank's shells experience it, after any stabiliser perk. */
@@ -356,10 +357,10 @@ export class World {
     for (let i = 0; i < whole; i++) {
       if (useFuel && t.fuel <= 0) break;
       const nx = t.x + dir;
-      if (nx < 14 || nx > this.terrain.width - 14) break;
+      if (nx < 14 * UNIT || nx > this.terrain.width - 14 * UNIT) break;
       const hereY = this.terrain.surfaceY(t.x);
       const nextY = this.terrain.surfaceY(nx);
-      if (hereY - nextY > maxClimb) break; // too steep uphill
+      if (hereY - nextY > maxClimb * UNIT) break; // too steep uphill
       t.x = nx;
       if (useFuel) t.fuel -= 1;
       moved += 1;
@@ -368,7 +369,7 @@ export class World {
     if (moved > 0) {
       // Follow the surface downhill; if the drop is big, go airborne.
       const surf = this.terrain.surfaceY(t.x);
-      if (surf - t.y > 10) t.airborne = true;
+      if (surf - t.y > 10 * UNIT) t.airborne = true;
       else this.snapToGround(t);
       this.events.push({ kind: 'move', tank: t.index, dx: moved * dir });
     }
@@ -426,8 +427,8 @@ export class World {
       payload,
       x,
       y: -20,
-      halfWidth: 12,
-      halfHeight: 12,
+      halfWidth: 12 * UNIT,
+      halfHeight: 12 * UNIT,
       hp: 1,
       maxHp: 1,
       alive: true,
@@ -469,7 +470,7 @@ export class World {
 
       stepProjectile(p, w, dt);
       if (p.grace > 0) p.grace -= 1;
-      if (p.trail.length === 0 || Math.hypot(p.pos.x - p.trail[p.trail.length - 1].x, p.pos.y - p.trail[p.trail.length - 1].y) > 3) {
+      if (p.trail.length === 0 || Math.hypot(p.pos.x - p.trail[p.trail.length - 1].x, p.pos.y - p.trail[p.trail.length - 1].y) > 3 * UNIT) {
         p.trail.push({ ...p.pos });
         if (p.trail.length > 40) p.trail.shift();
       }
@@ -503,7 +504,7 @@ export class World {
       }
       // Railguns fly until they hit something or leave; carve as they pass through rock.
       if (p.weapon.behaviour === 'railgun' && this.terrain.isSolid(p.pos.x, p.pos.y)) {
-        this.terrain.carveCircle(p.pos.x, p.pos.y, 3, false);
+        this.terrain.carveCircle(p.pos.x, p.pos.y, 3 * UNIT, false);
       }
     }
     this.projectiles = this.projectiles.filter((p) => p.state !== 'done');
@@ -555,8 +556,8 @@ export class World {
           p.state = 'rolling';
           p.rollSteps = 0;
           p.pos.y = this.terrain.surfaceY(p.pos.x) - 2;
-          const l = this.terrain.surfaceY(p.pos.x - 3);
-          const r = this.terrain.surfaceY(p.pos.x + 3);
+          const l = this.terrain.surfaceY(p.pos.x - 3 * UNIT);
+          const r = this.terrain.surfaceY(p.pos.x + 3 * UNIT);
           p.rollDir = r > l ? 1 : l > r ? -1 : Math.sign(p.vel.x) || 1;
           this.events.push({ kind: 'bounce', at });
           return;
@@ -565,7 +566,7 @@ export class World {
       case 'digger':
         if (!hit) {
           p.state = 'tunnelling';
-          p.tunnelLeft = 34;
+          p.tunnelLeft = 34 * UNIT;
           const len = Math.hypot(p.vel.x, p.vel.y) || 1;
           p.tunnelDir = { x: p.vel.x / len, y: p.vel.y / len };
           return;
@@ -578,14 +579,14 @@ export class World {
     }
     p.state = 'done';
     if (w.id === 'earthmover') {
-      this.terrain.fillCircle(at.x, at.y + w.radius * 0.45, w.radius);
-      this.events.push({ kind: 'fill', at, radius: w.radius });
+      this.terrain.fillCircle(at.x, at.y + w.radius * UNIT * 0.45, w.radius * UNIT);
+      this.events.push({ kind: 'fill', at, radius: w.radius * UNIT });
       this.applyBlast(at, w, p.owner);
       this.wakeTanks();
     } else if (w.id === 'airburst') {
-      const up = { x: at.x, y: at.y - 10 };
-      this.terrain.carveCircle(up.x, up.y, w.radius * 0.35);
-      this.events.push({ kind: 'explode', at: up, radius: w.radius, weapon: w });
+      const up = { x: at.x, y: at.y - 10 * UNIT };
+      this.terrain.carveCircle(up.x, up.y, w.radius * UNIT * 0.35);
+      this.events.push({ kind: 'explode', at: up, radius: w.radius * UNIT, weapon: w });
       this.applyBlast(up, w, p.owner);
       this.wakeTanks();
     } else {
@@ -597,14 +598,14 @@ export class World {
     p.rollSteps += 1;
     const x = p.pos.x;
     const here = this.terrain.surfaceY(x);
-    const ahead = this.terrain.surfaceY(x + p.rollDir * 3);
+    const ahead = this.terrain.surfaceY(x + p.rollDir * 3 * UNIT);
     // Roll until we would go uphill, or have rolled a long way.
     if (ahead < here - 2 || p.rollSteps > 700 || x < 2 || x > this.width - 2) {
       p.state = 'done';
       this.explode({ x, y: here - 1 }, p.weapon, p.owner);
       return;
     }
-    p.pos.x += p.rollDir * 1.4;
+    p.pos.x += p.rollDir * 1.4 * UNIT;
     p.pos.y = this.terrain.surfaceY(p.pos.x) - 2;
     if (p.rollSteps % 3 === 0) {
       p.trail.push({ ...p.pos });
@@ -618,12 +619,12 @@ export class World {
   }
 
   private stepTunnel(p: Projectile): void {
-    p.pos.x += p.tunnelDir.x * 1.2;
-    p.pos.y += p.tunnelDir.y * 1.2;
-    this.terrain.carveCircle(p.pos.x, p.pos.y, 4, false);
+    p.pos.x += p.tunnelDir.x * 1.2 * UNIT;
+    p.pos.y += p.tunnelDir.y * 1.2 * UNIT;
+    this.terrain.carveCircle(p.pos.x, p.pos.y, 4 * UNIT, false);
     p.tunnelLeft -= 1;
     const hit = this.findHit(p);
-    const outside = !this.terrain.isSolid(p.pos.x + p.tunnelDir.x * 5, p.pos.y + p.tunnelDir.y * 5);
+    const outside = !this.terrain.isSolid(p.pos.x + p.tunnelDir.x * 5 * UNIT, p.pos.y + p.tunnelDir.y * 5 * UNIT);
     if (p.tunnelLeft <= 0 || hit || outside || p.pos.y > this.height - 4) {
       p.state = 'done';
       this.explode({ ...p.pos }, p.weapon, p.owner);
@@ -634,19 +635,19 @@ export class World {
     const w = p.weapon;
     // Burning fluid runs downhill from the impact in several streams.
     for (let i = 0; i < w.submunitions; i++) {
-      let x = p.pos.x + this.rng.range(-14, 14);
+      let x = p.pos.x + this.rng.range(-14, 14) * UNIT;
       let y = this.terrain.surfaceY(x) - 2;
       for (let k = 0; k < 40 + i * 6; k++) {
-        const l = this.terrain.surfaceY(x - 2);
-        const r = this.terrain.surfaceY(x + 2);
+        const l = this.terrain.surfaceY(x - 2 * UNIT);
+        const r = this.terrain.surfaceY(x + 2 * UNIT);
         const here = this.terrain.surfaceY(x);
         if (l >= here && r >= here) break;
-        x += r < l ? 1.6 : -1.6;
+        x += (r < l ? 1.6 : -1.6) * UNIT;
         if (x < 0 || x >= this.width) break;
         y = this.terrain.surfaceY(x) - 2;
       }
       const at = { x, y };
-      this.terrain.carveCircle(x, y, 4, true);
+      this.terrain.carveCircle(x, y, 4 * UNIT, true);
       this.applyBlast(at, w, p.owner);
       this.events.push({ kind: 'burn', at, weapon: w });
     }
@@ -654,10 +655,11 @@ export class World {
   }
 
   private explode(at: Vec2, w: Weapon, owner: number): void {
-    this.terrain.carveCircle(at.x, at.y, w.radius);
-    this.events.push({ kind: 'explode', at, radius: w.radius, weapon: w });
+    const r = w.radius * UNIT;
+    this.terrain.carveCircle(at.x, at.y, r);
+    this.events.push({ kind: 'explode', at, radius: r, weapon: w });
     this.applyBlast(at, w, owner);
-    if (this.mode.terrainCollapse) this.terrain.settle(at.x - w.radius - 2, at.x + w.radius + 2);
+    if (this.mode.terrainCollapse) this.terrain.settle(at.x - r - 2, at.x + r + 2);
     this.wakeTanks();
   }
 
@@ -667,7 +669,7 @@ export class World {
       const cy = d.kind === 'tank' ? d.y - d.halfHeight : d.y;
       const dx = Math.max(Math.abs(at.x - d.x) - d.halfWidth, 0);
       const dy = Math.max(Math.abs(at.y - cy) - d.halfHeight, 0);
-      const f = blastFalloff(Math.hypot(dx, dy), w.radius);
+      const f = blastFalloff(Math.hypot(dx, dy), w.radius * UNIT);
       if (f <= 0) continue;
 
       let dmg = w.damage * f;
@@ -734,8 +736,8 @@ export class World {
         t.vy = 0;
         t.tilt = this.terrain.surfaceAngle(t.x, t.cls.halfWidth);
         let dmg = 0;
-        if (this.mode.fallDamage && t.cls.perk.kind !== 'hover' && speed > 120) {
-          dmg = Math.round(Math.min(40, (speed - 120) * 0.12));
+        if (this.mode.fallDamage && t.cls.perk.kind !== 'hover' && speed > 120 * UNIT) {
+          dmg = Math.round(Math.min(40, (speed - 120 * UNIT) * (0.12 / UNIT)));
           if (dmg > 0) this.damage(t, dmg, -1, { x: t.x, y: t.y });
         }
         this.events.push({ kind: 'land', tank: t.index, impactSpeed: speed, damage: dmg });
@@ -763,7 +765,7 @@ export class World {
       if (!c.alive) continue;
       if (!c.landed) {
         // Parachute: slow constant descent.
-        c.vy = 55;
+        c.vy = 55 * UNIT;
         c.y += c.vy * dt;
         const surf = this.terrain.surfaceY(c.x);
         if (c.y + c.halfHeight >= surf) {
@@ -774,7 +776,7 @@ export class World {
       } else {
         // Follow the ground if it disappears.
         const surf = this.terrain.surfaceY(c.x);
-        if (c.y + c.halfHeight < surf - 1) c.y = Math.min(c.y + 200 * dt, surf - c.halfHeight);
+        if (c.y + c.halfHeight < surf - 1) c.y = Math.min(c.y + 200 * UNIT * dt, surf - c.halfHeight);
         c.ttl -= dt;
         if (c.ttl <= 0) c.alive = false;
       }

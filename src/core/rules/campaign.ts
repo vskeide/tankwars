@@ -9,7 +9,7 @@ import { Terrain, TERRAIN_STYLES } from '../terrain';
 import { gameMode } from '../modes';
 import { tankClassById } from '../tanks';
 import { weaponById, weaponsForMode } from '../weapons';
-import { launchVelocity } from '../physics';
+import { UNIT, launchVelocity } from '../physics';
 import { Rng } from '../rng';
 import { solveFrom } from '../ai';
 import type { Intent } from '../input';
@@ -98,7 +98,7 @@ export class CampaignLevel {
 
     this.playerIndices.forEach((idx, k) => {
       const t = this.world.tanks[idx];
-      this.world.respawnTank(t, Math.round(w * this.level.playerAt) + k * 40);
+      this.world.respawnTank(t, Math.round(w * this.level.playerAt) + k * 40 * UNIT);
       t.ammo.clear();
       t.ammo.set('shell', -1);
       t.ammo.set('heavy', 4);
@@ -139,12 +139,13 @@ export class CampaignLevel {
   private spawnBoss(def: BossDef, x: number): void {
     // Flatten a wide shelf so the boss sits level.
     const surf = this.world.terrain.surfaceY(x);
-    this.world.terrain.fillCircle(x, surf + def.width * 0.35, def.width * 0.6);
-    this.world.terrain.carveCircle(x, surf - 60, def.width * 0.62, false);
+    const bw = def.width * UNIT;
+    this.world.terrain.fillCircle(x, surf + bw * 0.35, bw * 0.6);
+    this.world.terrain.carveCircle(x, surf - 60 * UNIT, bw * 0.62, false);
     const y = this.world.terrain.surfaceY(x);
     const state: BossState = { def, index: this.bosses.length, x, y, hardpoints: new Map(), active: new Set(), timers: new Map(), phaseIndex: -1, maxHp: 0, facing: -1 };
     for (const h of def.hardpoints) {
-      const hp = this.world.addHardpoint({ bossIndex: state.index, name: h.name, dx: h.dx, dy: h.dy, core: h.core, x: x + h.dx * state.facing, y: y + h.dy, halfWidth: h.halfWidth, halfHeight: h.halfHeight, hp: h.hp, maxHp: h.hp });
+      const hp = this.world.addHardpoint({ bossIndex: state.index, name: h.name, dx: h.dx, dy: h.dy, core: h.core, x: x + h.dx * UNIT * state.facing, y: y + h.dy * UNIT, halfWidth: h.halfWidth * UNIT, halfHeight: h.halfHeight * UNIT, hp: h.hp, maxHp: h.hp });
       state.hardpoints.set(h.id, hp);
       state.maxHp += h.hp;
     }
@@ -312,7 +313,7 @@ export class CampaignLevel {
         break;
       }
       case 'drop': {
-        this.world.spawnCrate(Math.round(this.rng.range(target.x - 60, target.x + 60)), 'ammo', 'heavy');
+        this.world.spawnCrate(Math.round(this.rng.range(target.x - 60 * UNIT, target.x + 60 * UNIT)), 'ammo', 'heavy');
         break;
       }
     }
@@ -342,8 +343,8 @@ export class CampaignLevel {
       payload = this.rng.pick(pool).id;
     }
     const p = this.nearestPlayer(0);
-    const x = p ? Math.round(p.x + this.rng.range(40, 160)) : Math.round(this.config.width * 0.3);
-    this.world.spawnCrate(Math.max(30, Math.min(this.config.width - 30, x)), kind, payload);
+    const x = p ? Math.round(p.x + this.rng.range(40, 160) * UNIT) : Math.round(this.config.width * 0.3);
+    this.world.spawnCrate(Math.max(60, Math.min(this.config.width - 60, x)), kind, payload);
   }
 
   /** Next level id after this one, or null at the end of the campaign. */

@@ -8,7 +8,7 @@ import { weaponById } from '../core/weapons';
 import type { Tank, World } from '../core/world';
 import { HUD_H, NATIVE_H, NATIVE_W } from './config';
 
-const FONT = { fontFamily: 'monospace', fontSize: '11px', color: hex(PAL.uiText) };
+const FONT = { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText) };
 
 export class Hud {
   private readonly g: Phaser.GameObjects.Graphics;
@@ -22,13 +22,13 @@ export class Hud {
 
   constructor(private scene: Phaser.Scene, private worldY: number) {
     this.g = scene.add.graphics().setDepth(100).setScrollFactor(0);
-    this.name = scene.add.text(18, 6, '', { ...FONT, fontStyle: 'bold' }).setDepth(101).setScrollFactor(0);
-    this.aim = scene.add.text(200, 6, '', FONT).setDepth(101).setScrollFactor(0);
-    this.weapon = scene.add.text(430, 6, '', FONT).setDepth(101).setScrollFactor(0);
-    this.windText = scene.add.text(NATIVE_W - 210, 6, 'WIND', { ...FONT, color: hex(PAL.uiTextDim) }).setDepth(101).setScrollFactor(0);
-    this.status = scene.add.text(6, NATIVE_H - 13, '', { ...FONT, fontSize: '9px', color: hex(PAL.uiTextDim), backgroundColor: hex(PAL.uiInk) }).setDepth(101).setScrollFactor(0);
+    this.name = scene.add.text(28, 10, '', { ...FONT, fontStyle: 'bold' }).setDepth(101).setScrollFactor(0);
+    this.aim = scene.add.text(320, 6, '', FONT).setDepth(101).setScrollFactor(0);
+    this.weapon = scene.add.text(760, 10, '', FONT).setDepth(101).setScrollFactor(0);
+    this.windText = scene.add.text(NATIVE_W - 330, 10, 'WIND', { ...FONT, color: hex(PAL.uiTextDim) }).setDepth(101).setScrollFactor(0);
+    this.status = scene.add.text(8, NATIVE_H - 20, '', { ...FONT, fontSize: '13px', color: hex(PAL.uiTextDim), backgroundColor: hex(PAL.uiInk) }).setDepth(101).setScrollFactor(0);
     this.banner = scene.add
-      .text(NATIVE_W / 2, 170, '', { fontFamily: 'monospace', fontSize: '24px', color: hex(PAL.uiText), stroke: hex(PAL.uiInk), strokeThickness: 5, align: 'center' })
+      .text(NATIVE_W / 2, 330, '', { fontFamily: 'monospace', fontSize: '36px', color: hex(PAL.uiText), stroke: hex(PAL.uiInk), strokeThickness: 6, align: 'center' })
       .setOrigin(0.5)
       .setDepth(120)
       .setScrollFactor(0)
@@ -39,18 +39,18 @@ export class Hud {
     const g = this.g;
     g.clear();
     g.fillStyle(PAL.uiInk, 1).fillRect(0, 0, NATIVE_W, HUD_H);
-    g.fillStyle(PAL.uiEdge, 1).fillRect(0, HUD_H - 2, NATIVE_W, 1);
-    g.fillStyle(PAL.uiPanelLit, 1).fillRect(0, HUD_H - 1, NATIVE_W, 1);
+    g.fillStyle(PAL.uiEdge, 1).fillRect(0, HUD_H - 4, NATIVE_W, 2);
+    g.fillStyle(PAL.uiPanelLit, 1).fillRect(0, HUD_H - 2, NATIVE_W, 2);
 
     if (current) {
       const team = TEAM_COLOURS[current.colour % TEAM_COLOURS.length];
-      g.fillStyle(team.mid, 1).fillRect(6, 6, 8, 18);
-      g.fillStyle(team.lit, 1).fillRect(6, 6, 8, 3);
+      g.fillStyle(team.mid, 1).fillRect(10, 10, 12, 26);
+      g.fillStyle(team.lit, 1).fillRect(10, 10, 12, 4);
       this.name.setText(current.name.toUpperCase()).setColor(hex(team.lit));
       this.aim.setText(`ANG ${Math.round(current.angle).toString().padStart(3)}°  PWR ${Math.round(current.power).toString().padStart(3)}`);
       // Power bar
-      g.fillStyle(PAL.uiPanel, 1).fillRect(200, 20, 180, 6);
-      g.fillStyle(PAL.uiEdge, 1).fillRect(201, 21, Math.round(178 * (current.power / 100)), 4);
+      g.fillStyle(PAL.uiPanel, 1).fillRect(320, 28, 300, 10);
+      g.fillStyle(PAL.uiEdge, 1).fillRect(322, 30, Math.round(296 * (current.power / 100)), 6);
       const w = weaponById(current.selectedWeapon);
       const n = world.ammoFor(current, w.id);
       this.weapon.setText(`${w.name.toUpperCase()}  ${n < 0 ? '∞' : '×' + n}`);
@@ -63,15 +63,15 @@ export class Hud {
     this.status.setText(statusLine);
 
     // Wind gauge: centred bar, fills left or right.
-    const wx = NATIVE_W - 150;
-    const ww = 136;
-    g.fillStyle(PAL.uiPanel, 1).fillRect(wx, 9, ww, 10);
-    g.fillStyle(PAL.uiPanelLit, 1).fillRect(wx + ww / 2, 8, 1, 12);
+    const wx = NATIVE_W - 230;
+    const ww = 210;
+    g.fillStyle(PAL.uiPanel, 1).fillRect(wx, 14, ww, 16);
+    g.fillStyle(PAL.uiPanelLit, 1).fillRect(wx + ww / 2, 12, 2, 20);
     const frac = Math.max(-1, Math.min(1, world.wind / world.mode.windMax));
     const len = Math.round(Math.abs(frac) * (ww / 2 - 2));
     g.fillStyle(Math.abs(frac) > 0.6 ? PAL.uiDanger : PAL.uiEdge, 1);
-    if (frac >= 0) g.fillRect(wx + ww / 2 + 1, 11, len, 6);
-    else g.fillRect(wx + ww / 2 - len, 11, len, 6);
+    if (frac >= 0) g.fillRect(wx + ww / 2 + 2, 17, len, 10);
+    else g.fillRect(wx + ww / 2 - len, 17, len, 10);
     this.windText.setText(`WIND ${world.wind > 0 ? '→' : world.wind < 0 ? '←' : '·'} ${Math.abs(world.wind)}`);
 
     // Floating bars
@@ -80,7 +80,7 @@ export class Hud {
       if (!e) {
         e = {
           bg: this.scene.add.graphics().setDepth(60),
-          tag: this.scene.add.text(0, 0, t.name, { ...FONT, fontSize: '9px' }).setOrigin(0.5, 1).setDepth(61),
+          tag: this.scene.add.text(0, 0, t.name, { ...FONT, fontSize: '13px' }).setOrigin(0.5, 1).setDepth(61),
         };
         this.bars.set(t.index, e);
       }
@@ -91,14 +91,14 @@ export class Hud {
       }
       e.tag.setVisible(true);
       const team = TEAM_COLOURS[t.colour % TEAM_COLOURS.length];
-      const bw = 40;
+      const bw = 70;
       const x = Math.round(t.x - bw / 2);
-      const y = Math.round(t.y + this.worldY - t.halfHeight * 2 - 26);
-      e.bg.fillStyle(PAL.uiInk, 0.85).fillRect(x - 1, y - 1, bw + 2, 5);
+      const y = Math.round(t.y + this.worldY - t.halfHeight * 2 - 34);
+      e.bg.fillStyle(PAL.uiInk, 0.85).fillRect(x - 2, y - 2, bw + 4, 9);
       const f = t.hp / t.maxHp;
-      e.bg.fillStyle(f > 0.5 ? PAL.glow : f > 0.25 ? PAL.fireHot : PAL.uiDanger, 1).fillRect(x, y, Math.round(bw * f), 3);
-      if (t.shield > 0) e.bg.fillStyle(0x54c8ff, 1).fillRect(x, y + 4, Math.round(bw * Math.min(1, t.shield / 60)), 1);
-      e.tag.setPosition(t.x, y - 2).setColor(hex(team.lit)).setText(current && current.index === t.index ? `▼ ${t.name}` : t.name);
+      e.bg.fillStyle(f > 0.5 ? PAL.glow : f > 0.25 ? PAL.fireHot : PAL.uiDanger, 1).fillRect(x, y, Math.round(bw * f), 5);
+      if (t.shield > 0) e.bg.fillStyle(0x54c8ff, 1).fillRect(x, y + 6, Math.round(bw * Math.min(1, t.shield / 60)), 2);
+      e.tag.setPosition(t.x, y - 4).setColor(hex(team.lit)).setText(current && current.index === t.index ? `▼ ${t.name}` : t.name);
     }
   }
 

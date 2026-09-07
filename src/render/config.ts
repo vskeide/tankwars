@@ -6,21 +6,22 @@
  * window with nearest-neighbour filtering, so on a 4K screen a 1080p native
  * grid shows as clean 2×2 blocks.
  */
-export const NATIVE_W = 960;
-export const NATIVE_H = 540;
+export const NATIVE_W = 1920;
+export const NATIVE_H = 1080;
 
 /**
- * Integer zoom to the target display. 2 → 1920×1080, 4 → 4K. Sheet sprites are
- * ~57 native px wide, i.e. 6% of the map — small enough that aim matters.
+ * Integer zoom to the target display. 1 → 1080p, 2 → 4K. The world, terrain,
+ * particles and text live on the full 1080p grid; sprites from the sheets are
+ * ~57 px and are drawn at SPRITE_SCALE so a tank is ~114 px = 6% of the map.
  */
-export const ZOOM = 2;
+export const ZOOM = 1;
+export const SPRITE_SCALE = 2;
 
 /** Height of the top HUD strip in native pixels. Terrain starts below it. */
-export const HUD_H = 30;
+export const HUD_H = 44;
 
 /** Terrain bitmap covers the full width and everything under the HUD. */
 export const TERRAIN_W = NATIVE_W;
 export const TERRAIN_H = NATIVE_H - HUD_H;
 
-/** Physics tuning is in native pixels; the core knows nothing about ZOOM. */
-export const SPRITE_DETAIL = 1;
+

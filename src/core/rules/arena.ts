@@ -82,7 +82,7 @@ export class ArenaMatch {
     this.world.setTerrain(Terrain.generate(this.config.width, this.config.height, style, this.rng.int(1, 2 ** 31 - 1)));
 
     const n = this.world.tanks.length;
-    const margin = 110;
+    const margin = 220;
     const span = this.config.width - margin * 2;
     const order = this.world.tanks.map((t) => t.index);
     for (let i = order.length - 1; i > 0; i--) {
@@ -183,11 +183,11 @@ export class ArenaMatch {
     // Drop somewhere between the outermost tanks, never right on top of one.
     const alive = this.world.aliveTanks();
     const xs = alive.map((t) => t.x);
-    const lo = Math.max(60, Math.min(...xs) - 120);
-    const hi = Math.min(this.config.width - 60, Math.max(...xs) + 120);
+    const lo = Math.max(120, Math.min(...xs) - 240);
+    const hi = Math.min(this.config.width - 120, Math.max(...xs) + 240);
     let x = this.rng.range(lo, hi);
     for (let tries = 0; tries < 8; tries++) {
-      if (alive.every((t) => Math.abs(t.x - x) > 70)) break;
+      if (alive.every((t) => Math.abs(t.x - x) > 140)) break;
       x = this.rng.range(lo, hi);
     }
     this.world.spawnCrate(Math.round(x), kind, payload);

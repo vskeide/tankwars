@@ -2,8 +2,10 @@
 
 Turn-based and real-time artillery game in the spirit of Tank Wars (DOS, 1991) with
 modern pixel art, tank classes, a fifteen-weapon armoury, hotseat play and a campaign
-with bosses. Phaser 3 + TypeScript + Vite. Runs in the browser at 640×360 native, 3×
-integer zoom to 1080p.
+with bosses. Phaser 3 + TypeScript + Vite. Runs in the browser at 1920×1080 native (the
+world, terrain, particles and text are per-pixel); sheet sprites are drawn at an integer
+`SPRITE_SCALE` of 2. Balance numbers (radii, speeds, hitboxes) are authored in design
+units and multiplied by `UNIT = 2` from `core/physics.ts`.
 
 ## The one architectural rule
 
@@ -50,7 +52,8 @@ Never hand-edit an extracted sprite; regenerate the sheet instead.
 
 - Angles: degrees from +X, counter-clockwise (0 right, 90 up, 180 left). Power 5–100.
 - World coordinates are terrain pixels with y down; the renderer offsets by `HUD_H`.
-- `ZOOM` in `render/config.ts` is the only place the display scale lives.
+- `ZOOM`/`SPRITE_SCALE` in `render/config.ts` and `UNIT` in `core/physics.ts` are the only
+  places scale lives. Never hardcode a pixel count that depends on resolution.
 - Deterministic: `Rng` everywhere in core, seeded from the match seed. `Math.random` is
   allowed in the render layer and inside bot noise only.
 - Commit messages: imperative subject, body says why.

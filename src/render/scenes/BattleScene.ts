@@ -9,7 +9,7 @@ import { BotController } from '../../core/ai';
 import { emptyIntent, type Intent } from '../../core/input';
 import { weaponById } from '../../core/weapons';
 import type { Crate, Hardpoint, Projectile, Tank, World, WorldEvent } from '../../core/world';
-import { HUD_H, NATIVE_H, NATIVE_W, TERRAIN_H, TERRAIN_W } from '../config';
+import { HUD_H, NATIVE_H, NATIVE_W, SPRITE_SCALE, TERRAIN_H, TERRAIN_W } from '../config';
 import { buildBackdrop } from '../backdrop';
 import { TerrainView } from '../terrainView';
 import { Hud } from '../hud';
@@ -129,7 +129,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.campaign) {
       for (const boss of this.campaign.bosses) {
         const key = atlasHas(`${boss.def.skin}.l`) ? `${boss.def.skin}.l` : atlasHas(`${boss.def.skin}.r`) ? `${boss.def.skin}.r` : null;
-        const img = key ? this.add.image(boss.x, boss.y + HUD_H, key).setOrigin(0.5, 1).setDepth(28) : null;
+        const img = key ? this.add.image(boss.x, boss.y + HUD_H, key).setOrigin(0.5, 1).setDepth(28).setScale(SPRITE_SCALE) : null;
         if (img && key && key.endsWith('.r')) img.setFlipX(true);
         this.bossViews.push({ img, bars: this.add.graphics().setDepth(62) });
       }
@@ -157,10 +157,11 @@ export class BattleScene extends Phaser.Scene {
     this.bgImages = [];
     const seed = (this.setup.seed + this.roundNumber() * 7919) & 0x7fffffff;
     const horizon = Math.floor(HUD_H + TERRAIN_H * 0.62);
+    // (backdrop is generated at full native size each round; ~2M px, a few ms)
     this.backdropKeys = buildBackdrop(this, NATIVE_W, NATIVE_H, horizon, seed);
     this.bgImages.push(this.add.image(0, 0, this.backdropKeys.sky).setOrigin(0).setDepth(0));
-    this.bgImages.push(this.add.image(-40, 0, this.backdropKeys.farMesas).setOrigin(0).setDepth(1));
-    this.bgImages.push(this.add.image(-90, 0, this.backdropKeys.nearMesas).setOrigin(0).setDepth(2));
+    this.bgImages.push(this.add.image(-80, 0, this.backdropKeys.farMesas).setOrigin(0).setDepth(1));
+    this.bgImages.push(this.add.image(-180, 0, this.backdropKeys.nearMesas).setOrigin(0).setDepth(2));
   }
 
   // ---- tank views ------------------------------------------------------------
@@ -173,21 +174,21 @@ export class BattleScene extends Phaser.Scene {
     let barrel: Phaser.GameObjects.Image;
     if (skin) {
       const info = ensureHull(this, skin, 'r', t.colour);
-      hull = this.add.image(0, 0, info.key).setOrigin(0.5, 1);
-      pivotX = info.pivotX;
-      pivotY = info.pivotY;
+      hull = this.add.image(0, 0, info.key).setOrigin(0.5, 1).setScale(SPRITE_SCALE);
+      pivotX = info.pivotX * SPRITE_SCALE;
+      pivotY = info.pivotY * SPRITE_SCALE;
       // Procedural barrel matched to the class, tinted toward the sprite's colour.
       ensureTankTextures(this, t.cls, t.colour);
-      barrel = this.add.image(0, 0, barrelTextureKey(t.cls, t.colour)).setOrigin(2 / (t.cls.barrel + 4), 0.5);
+      barrel = this.add.image(0, 0, barrelTextureKey(t.cls, t.colour)).setOrigin(2 / (t.cls.barrel + 4), 0.5).setScale(SPRITE_SCALE);
       // Hitbox from the sprite so shots register on what the player sees.
-      t.halfWidth = Math.round(info.width * 0.42);
-      t.halfHeight = Math.round(info.height * 0.42);
+      t.halfWidth = Math.round(info.width * 0.42 * SPRITE_SCALE);
+      t.halfHeight = Math.round(info.height * 0.42 * SPRITE_SCALE);
     } else {
       const meta = ensureTankTextures(this, t.cls, t.colour);
-      hull = this.add.image(0, 0, hullTextureKey(t.cls, t.colour)).setOrigin(0.5, 1);
-      pivotX = meta.pivotX;
-      pivotY = meta.pivotY;
-      barrel = this.add.image(0, 0, barrelTextureKey(t.cls, t.colour)).setOrigin(2 / (meta.barrelLen + 4), 0.5);
+      hull = this.add.image(0, 0, hullTextureKey(t.cls, t.colour)).setOrigin(0.5, 1).setScale(SPRITE_SCALE);
+      pivotX = meta.pivotX * SPRITE_SCALE;
+      pivotY = meta.pivotY * SPRITE_SCALE;
+      barrel = this.add.image(0, 0, barrelTextureKey(t.cls, t.colour)).setOrigin(2 / (meta.barrelLen + 4), 0.5).setScale(SPRITE_SCALE);
     }
     hull.setDepth(30);
     barrel.setDepth(29);
@@ -195,7 +196,7 @@ export class BattleScene extends Phaser.Scene {
       lifespan: { min: 600, max: 1400 },
       speed: { min: 4, max: 14 },
       angle: { min: 260, max: 280 },
-      scale: { start: 0.8, end: 2 },
+      scale: { start: 1.6, end: 4 },
       alpha: { start: 0.7, end: 0 },
       tint: [PAL.smoke, PAL.smokeLight],
       frequency: 120,
@@ -222,7 +223,7 @@ export class BattleScene extends Phaser.Scene {
         const info = atlasHas(`${v.skin}.${f}`) ? ensureHull(this, v.skin, f, t.colour) : ensureHull(this, v.skin, 'r', t.colour);
         v.hull.setTexture(info.key);
         v.hull.setFlipX(!atlasHas(`${v.skin}.${f}`) && facing === -1);
-        v.pivotX = atlasHas(`${v.skin}.${f}`) ? info.pivotX : -info.pivotX;
+        v.pivotX = (atlasHas(`${v.skin}.${f}`) ? info.pivotX : -info.pivotX) * SPRITE_SCALE;
       } else {
         v.hull.setFlipX(facing === -1);
         v.pivotX = Math.abs(v.pivotX) * (facing === 1 ? 1 : -1);
@@ -236,7 +237,7 @@ export class BattleScene extends Phaser.Scene {
     const sa = Math.sin(t.tilt * 0.6);
     const px = x + v.pivotX * ca - v.pivotY * sa;
     const py = y + v.pivotX * sa + v.pivotY * ca;
-    v.recoil = Math.max(0, v.recoil - dt * 18);
+    v.recoil = Math.max(0, v.recoil - dt * 18 * SPRITE_SCALE);
     const a = (-t.angle * Math.PI) / 180;
     v.barrel.setPosition(px - Math.cos(a) * v.recoil, py - Math.sin(a) * v.recoil).setRotation(a);
     // Damage smoke
@@ -258,8 +259,7 @@ export class BattleScene extends Phaser.Scene {
       let v = this.projViews.get(p.id);
       if (!v) {
         const key = this.projectileTexture(p);
-        const sprite = this.add.image(0, 0, key).setDepth(36);
-        if (key.startsWith('proj.')) sprite.setScale(0.5);
+        const sprite = this.add.image(0, 0, key).setDepth(36).setScale(SPRITE_SCALE);
         v = { sprite, trail: this.add.graphics().setDepth(34) };
         this.projViews.set(p.id, v);
       }
@@ -269,7 +269,7 @@ export class BattleScene extends Phaser.Scene {
       for (let i = 0; i < p.trail.length; i++) {
         const q = p.trail[i];
         const f = i / p.trail.length;
-        v.trail.fillStyle(col, 0.15 + f * 0.6).fillRect(Math.round(q.x), Math.round(q.y + HUD_H), 1, 1);
+        v.trail.fillStyle(col, 0.15 + f * 0.6).fillRect(Math.round(q.x), Math.round(q.y + HUD_H), 2, 2);
       }
     }
     for (const [id, v] of this.projViews) {
@@ -316,15 +316,15 @@ export class BattleScene extends Phaser.Scene {
       : c.crateKind === 'credits' && atlasHas('crate.metal') ? 'crate.metal'
       : atlasHas('crate.wood') ? 'crate.wood' : 'debris2';
     const img = this.add.image(0, 0, key);
-    const s = 20 / Math.max(img.width, img.height);
+    const s = (20 * SPRITE_SCALE) / Math.max(img.width, img.height);
     img.setScale(s);
     const chute = this.add.graphics().setName('chute');
-    chute.fillStyle(PAL.uiText, 1).fillEllipse(0, -22, 30, 14);
-    chute.fillStyle(PAL.uiDanger, 1).fillRect(-8, -26, 6, 6);
-    chute.lineStyle(1, PAL.uiTextDim, 1);
-    chute.lineBetween(-14, -20, -6, -8);
-    chute.lineBetween(14, -20, 6, -8);
-    chute.lineBetween(0, -22, 0, -8);
+    chute.fillStyle(PAL.uiText, 1).fillEllipse(0, -44, 60, 28);
+    chute.fillStyle(PAL.uiDanger, 1).fillRect(-16, -52, 12, 12);
+    chute.lineStyle(2, PAL.uiTextDim, 1);
+    chute.lineBetween(-28, -40, -12, -16);
+    chute.lineBetween(28, -40, 12, -16);
+    chute.lineBetween(0, -44, 0, -16);
     const cont = this.add.container(0, 0, [chute, img]).setDepth(33);
     this.crateViews.set(c.id, cont);
     return cont;
@@ -338,7 +338,7 @@ export class BattleScene extends Phaser.Scene {
         case 'launch': {
           this.fx.muzzleFlash(e.from.x, e.from.y, e.angle);
           const v = this.tankViews.get(e.shooter);
-          if (v) v.recoil = 4;
+          if (v) v.recoil = 4 * SPRITE_SCALE;
           this.sfx.play(e.weapon.behaviour === 'railgun' ? 'railgun' : e.weapon.damage > 45 ? 'fireHeavy' : 'fire', 1, 0.9 + Math.random() * 0.2);
           break;
         }
@@ -404,7 +404,7 @@ export class BattleScene extends Phaser.Scene {
           const tk = this.world.tanks[e.tank];
           this.sfx.play('crate');
           const label = e.crateKind === 'weapon' || e.crateKind === 'ammo' ? weaponById(e.payload || 'heavy').name : e.crateKind.toUpperCase();
-          const txt = this.add.text(tk.x, tk.y + HUD_H - tk.halfHeight * 2 - 24, `+ ${label}`, { fontFamily: 'monospace', fontSize: '11px', color: hex(PAL.glow), stroke: hex(PAL.uiInk), strokeThickness: 3 }).setOrigin(0.5).setDepth(80);
+          const txt = this.add.text(tk.x, tk.y + HUD_H - tk.halfHeight * 2 - 24, `+ ${label}`, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.glow), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5).setDepth(80);
           this.tweens.add({ targets: txt, y: txt.y - 20, alpha: 0, duration: 1100, onComplete: () => txt.destroy() });
           break;
         }
@@ -528,11 +528,11 @@ export class BattleScene extends Phaser.Scene {
       for (const [id, hp] of boss.hardpoints) {
         if (!hp.alive) continue;
         const active = boss.active.has(id) || hp.core;
-        const w = 18;
+        const w = 36;
         const x = Math.round(hp.x - w / 2);
-        const y = Math.round(hp.y + HUD_H - hp.halfHeight - 6);
-        v.bars.fillStyle(PAL.uiInk, 0.85).fillRect(x - 1, y - 1, w + 2, 4);
-        v.bars.fillStyle(hp.core ? PAL.uiDanger : active ? PAL.fireHot : PAL.uiTextDim, 1).fillRect(x, y, Math.round(w * (hp.hp / hp.maxHp)), 2);
+        const y = Math.round(hp.y + HUD_H - hp.halfHeight - 10);
+        v.bars.fillStyle(PAL.uiInk, 0.85).fillRect(x - 2, y - 2, w + 4, 8);
+        v.bars.fillStyle(hp.core ? PAL.uiDanger : active ? PAL.fireHot : PAL.uiTextDim, 1).fillRect(x, y, Math.round(w * (hp.hp / hp.maxHp)), 4);
       }
     });
   }
@@ -572,13 +572,13 @@ export class BattleScene extends Phaser.Scene {
       tanks: [],
       mapWidth: this.world.width,
       mapHeight: this.world.height,
-      maxSteps: this.world.mode.aimAssist === 'full' ? 3000 : 70,
+      maxSteps: this.world.mode.aimAssist === 'full' ? 3000 : 90,
       piercesTerrain: w.behaviour === 'railgun',
     }, w.windFactor, w.gravityFactor);
     const team = TEAM_COLOURS[t.colour % TEAM_COLOURS.length];
-    for (let i = 0; i < r.path.length; i += 6) {
+    for (let i = 0; i < r.path.length; i += 5) {
       const p = r.path[i];
-      this.aimGfx.fillStyle(team.lit, 0.5 - (i / r.path.length) * 0.4).fillRect(Math.round(p.x), Math.round(p.y + HUD_H), 1, 1);
+      this.aimGfx.fillStyle(team.lit, 0.5 - (i / r.path.length) * 0.4).fillRect(Math.round(p.x), Math.round(p.y + HUD_H), 2, 2);
     }
   }
 
@@ -647,9 +647,9 @@ export class BattleScene extends Phaser.Scene {
       try { localStorage.setItem('tankwars.campaign.level', next); } catch { /* private mode */ }
     }
     const bg = this.add.graphics().fillStyle(PAL.uiInk, 0.85).fillRect(0, 0, NATIVE_W, NATIVE_H);
-    const title = this.add.text(NATIVE_W / 2, 90, won ? (next ? `${c.level.name.toUpperCase()} CLEARED` : 'CAMPAIGN COMPLETE') : 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '22px', color: hex(won ? PAL.glow : PAL.uiDanger), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
-    const sub = this.add.text(NATIVE_W / 2, 120, won ? `+${c.level.reward} credits` : c.level.brief, { fontFamily: 'monospace', fontSize: '12px', color: hex(PAL.uiText) }).setOrigin(0.5);
-    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 30, won ? (next ? 'ENTER — next level     ESC — menu' : 'ENTER — menu') : 'ENTER — retry     ESC — menu', { fontFamily: 'monospace', fontSize: '11px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
+    const title = this.add.text(NATIVE_W / 2, 260, won ? (next ? `${c.level.name.toUpperCase()} CLEARED` : 'CAMPAIGN COMPLETE') : 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '32px', color: hex(won ? PAL.glow : PAL.uiDanger), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
+    const sub = this.add.text(NATIVE_W / 2, 320, won ? `+${c.level.reward} credits` : c.level.brief, { fontFamily: 'monospace', fontSize: '18px', color: hex(PAL.uiText) }).setOrigin(0.5);
+    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 60, won ? (next ? 'ENTER — next level     ESC — menu' : 'ENTER — menu') : 'ENTER — retry     ESC — menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
     this.overlay.add([bg, title, sub, hint]).setVisible(true);
     this.paused = true;
     this.input.keyboard!.once('keydown-ENTER', () => {
@@ -664,11 +664,11 @@ export class BattleScene extends Phaser.Scene {
     const w = this.world.tanks[winner];
     const team = TEAM_COLOURS[w.colour % TEAM_COLOURS.length];
     const bg = this.add.graphics().fillStyle(PAL.uiInk, 0.85).fillRect(0, 0, NATIVE_W, NATIVE_H);
-    const title = this.add.text(NATIVE_W / 2, 70, `${w.name.toUpperCase()} WINS THE WAR`, { fontFamily: 'monospace', fontSize: '22px', color: hex(team.lit), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
+    const title = this.add.text(NATIVE_W / 2, 200, `${w.name.toUpperCase()} WINS THE WAR`, { fontFamily: 'monospace', fontSize: '32px', color: hex(team.lit), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
     const rows = [...this.world.tanks].sort((a, b) => b.roundsWon * 1000 + b.kills - (a.roundsWon * 1000 + a.kills));
     const lines = rows.map((t, i) => `${i + 1}. ${t.name.padEnd(12)}  rounds ${t.roundsWon}  kills ${t.kills}  credits ${t.credits}`).join('\n');
-    const table = this.add.text(NATIVE_W / 2, 130, lines, { fontFamily: 'monospace', fontSize: '12px', color: hex(PAL.uiText), align: 'left' }).setOrigin(0.5, 0);
-    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 30, 'ENTER — back to menu', { fontFamily: 'monospace', fontSize: '11px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
+    const table = this.add.text(NATIVE_W / 2, 300, lines, { fontFamily: 'monospace', fontSize: '18px', color: hex(PAL.uiText), align: 'left' }).setOrigin(0.5, 0);
+    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 60, 'ENTER — back to menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
     this.overlay.add([bg, title, table, hint]).setVisible(true);
     this.paused = true;
     this.input.keyboard!.once('keydown-ENTER', () => this.scene.start('menu'));

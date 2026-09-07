@@ -4,7 +4,7 @@
  * found by running the real ballistics forward on the real terrain.
  */
 import type { World, Tank, Damageable } from './world';
-import { launchVelocity, simulateFlight, type TankHitbox } from './physics';
+import { UNIT, launchVelocity, simulateFlight, type TankHitbox } from './physics';
 import { weaponById, type Weapon } from './weapons';
 import { emptyIntent, type Intent } from './input';
 import type { Difficulty } from './types';
@@ -106,7 +106,7 @@ export class BotController {
 
     // Movement: chase a nearby crate, otherwise wander a little to be harder to hit.
     const crate = nearestCrate(world, bot);
-    if (crate && this.rand() < profile.greed && Math.abs(crate.x - bot.x) < 400) {
+    if (crate && this.rand() < profile.greed && Math.abs(crate.x - bot.x) < 400 * UNIT) {
       it.moveX = Math.sign(crate.x - bot.x);
       this.rethinkTimer = Math.min(this.rethinkTimer, 0.4); // aim goes stale while moving
     } else {
@@ -161,10 +161,10 @@ function pickWeapon(world: World, bot: Tank, target: Damageable, profile: Profil
   const ranked = owned
     .map((w) => {
       let s = w.damage / 40 + w.radius / 60;
-      if (w.behaviour === 'nuke' && dist < w.radius * 1.6) s -= 2;
+      if (w.behaviour === 'nuke' && dist < w.radius * UNIT * 1.6) s -= 2;
       if (target.hp < 30 && w.cost > 1500) s -= 1;
       if (w.behaviour === 'railgun' && Math.abs(world.wind) > 40) s += 1;
-      if (w.behaviour === 'roller' && world.terrain.surfaceY(target.x) > world.terrain.surfaceY(bot.x) + 30) s += 0.8;
+      if (w.behaviour === 'roller' && world.terrain.surfaceY(target.x) > world.terrain.surfaceY(bot.x) + 30 * UNIT) s += 0.8;
       if (w.id === 'shell') s -= 0.4;
       return { w, s: s + rand() * 0.5 };
     })
@@ -211,7 +211,7 @@ function solve(world: World, bot: Tank, target: Damageable, weapon: Weapon, prof
     let miss = Math.hypot(at.x - aimAt.x, at.y - aimAt.y);
     if (r.impact.kind === 'tank' && Math.abs(at.x - aimAt.x) < target.halfWidth + 2) miss *= 0.2;
     const selfDist = Math.hypot(at.x - bot.x, at.y - bot.y);
-    if (selfDist < weapon.radius * 1.3) miss += (weapon.radius * 1.3 - selfDist) * 4;
+    if (selfDist < weapon.radius * UNIT * 1.3) miss += (weapon.radius * UNIT * 1.3 - selfDist) * 4;
     return miss;
   };
 

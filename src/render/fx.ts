@@ -20,8 +20,8 @@ export class Fx {
     // Fire particles
     this.particles = scene.add.particles(0, 0, 'dot2', {
       lifespan: { min: 250, max: 650 },
-      speed: { min: 20, max: 90 },
-      scale: { start: 2.2, end: 0 },
+      speed: { min: 40, max: 180 },
+      scale: { start: 4.4, end: 0 },
       tint: [PAL.fireCore, PAL.fireHot, PAL.fireMid, PAL.fireDeep],
       gravityY: -30,
       emitting: false,
@@ -29,9 +29,9 @@ export class Fx {
     }).setDepth(40);
     this.smoke = scene.add.particles(0, 0, 'dot3', {
       lifespan: { min: 900, max: 2200 },
-      speed: { min: 6, max: 28 },
+      speed: { min: 12, max: 56 },
       angle: { min: 250, max: 290 },
-      scale: { start: 1.2, end: 3.2 },
+      scale: { start: 2.4, end: 6.4 },
       alpha: { start: 0.85, end: 0 },
       tint: [PAL.smoke, PAL.smokeLight],
       gravityY: -18,
@@ -39,19 +39,19 @@ export class Fx {
     }).setDepth(38);
     this.debris = scene.add.particles(0, 0, 'debris0', {
       lifespan: { min: 600, max: 1400 },
-      speed: { min: 60, max: 200 },
+      speed: { min: 120, max: 400 },
       angle: { min: 200, max: 340 },
-      gravityY: 260,
+      gravityY: 520,
       rotate: { start: 0, end: 360 },
       emitting: false,
       frame: undefined,
     }).setDepth(39);
     this.sparks = scene.add.particles(0, 0, 'dot', {
       lifespan: { min: 120, max: 400 },
-      speed: { min: 80, max: 220 },
-      scale: { start: 1.5, end: 0 },
+      speed: { min: 160, max: 440 },
+      scale: { start: 3, end: 0 },
       tint: [PAL.glowCore, PAL.glow, PAL.fireHot],
-      gravityY: 120,
+      gravityY: 240,
       emitting: false,
       blendMode: Phaser.BlendModes.ADD,
     }).setDepth(41);
@@ -79,7 +79,7 @@ export class Fx {
           frameRate: 18,
         });
       }
-      spr.setScale(Math.max(0.5, (radius * 2.4) / Math.max(spr.width, 1)));
+      spr.setScale(Math.max(1, (radius * 2.4) / Math.max(spr.width, 1)));
       spr.play(key).once('animationcomplete', () => spr.destroy());
     } else {
       // Fallback: a couple of expanding palette rings.
@@ -103,10 +103,10 @@ export class Fx {
         },
       });
     }
-    this.particles.explode(Math.round(radius * 1.4), x, yy);
-    this.smoke.explode(Math.round(radius * 0.5), x, yy - radius * 0.3);
-    this.debris.explode(Math.round(radius * 0.8), x, yy);
-    this.shake(Math.min(0.02, radius / 2500), 120 + radius * 3);
+    this.particles.explode(Math.round(radius * 0.7), x, yy);
+    this.smoke.explode(Math.round(radius * 0.25), x, yy - radius * 0.3);
+    this.debris.explode(Math.round(radius * 0.4), x, yy);
+    this.shake(Math.min(0.02, radius / 5000), 120 + radius * 1.5);
     if (weapon.behaviour === 'nuke') this.whiteFlash(0.9);
   }
 
@@ -117,8 +117,8 @@ export class Fx {
     this.sparks.explode(14, x + Math.cos(a) * 4, yy - Math.sin(a) * 4);
     this.sparks.setAngle(0);
     const g = this.scene.add.graphics().setDepth(43);
-    g.fillStyle(PAL.fireCore, 1).fillCircle(x, yy, 3);
-    g.fillStyle(PAL.fireHot, 0.8).fillCircle(x, yy, 6);
+    g.fillStyle(PAL.fireCore, 1).fillCircle(x, yy, 6);
+    g.fillStyle(PAL.fireHot, 0.8).fillCircle(x, yy, 12);
     this.scene.time.delayedCall(60, () => g.destroy());
     this.shake(0.004, 60);
   }
@@ -127,9 +127,9 @@ export class Fx {
     const yy = this.y(y);
     const e = this.scene.add.particles(x, yy, 'dot2', {
       lifespan: { min: 300, max: 700 },
-      speed: { min: 5, max: 25 },
+      speed: { min: 10, max: 50 },
       angle: { min: 250, max: 290 },
-      scale: { start: 1.6, end: 0 },
+      scale: { start: 3.2, end: 0 },
       tint: [PAL.fireHot, PAL.fireMid, PAL.fireDeep],
       frequency: 40,
       blendMode: Phaser.BlendModes.ADD,
@@ -150,10 +150,10 @@ export class Fx {
 
   damageNumber(x: number, y: number, amount: number, colour: number = PAL.uiText): void {
     const t = this.scene.add
-      .text(x, this.y(y) - 16, `-${amount}`, { fontFamily: 'monospace', fontSize: '13px', color: '#' + colour.toString(16).padStart(6, '0'), stroke: '#0d0709', strokeThickness: 3 })
+      .text(x, this.y(y) - 30, `-${amount}`, { fontFamily: 'monospace', fontSize: '18px', color: '#' + colour.toString(16).padStart(6, '0'), stroke: '#0d0709', strokeThickness: 3 })
       .setOrigin(0.5)
       .setDepth(80);
-    this.scene.tweens.add({ targets: t, y: t.y - 18, alpha: 0, duration: 900, ease: 'Quad.out', onComplete: () => t.destroy() });
+    this.scene.tweens.add({ targets: t, y: t.y - 36, alpha: 0, duration: 900, ease: 'Quad.out', onComplete: () => t.destroy() });
   }
 
   shake(intensity: number, ms: number): void {

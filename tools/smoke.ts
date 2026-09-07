@@ -13,8 +13,8 @@ import { SIM_DT } from '../src/core/physics';
 import { emptyIntent } from '../src/core/input';
 import type { GameModeId } from '../src/core/types';
 
-const W = 960;
-const H = 510;
+const W = 1920;
+const H = 1036;
 
 function check(cond: boolean, msg: string): void {
   if (!cond) {
