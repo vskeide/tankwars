@@ -117,7 +117,7 @@ export class TurnBasedMatch {
       if (intent.cycleWeapon !== 0) w.cycleWeapon(t, intent.cycleWeapon);
       if (intent.moveX !== 0 && this.mode.movement) {
         // Accumulate fractional pixels so slow drives still move.
-        this.driveAccum += intent.moveX * 180 * dt;
+        this.driveAccum += intent.moveX * 60 * dt;
         const whole = Math.trunc(this.driveAccum);
         if (whole !== 0) {
           w.drive(t, whole, true);

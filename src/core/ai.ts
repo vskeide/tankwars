@@ -98,11 +98,17 @@ export class BotController {
     }
 
     const s = this.solution;
-    const dA = s.angle - bot.angle;
+    // Real-time aiming is elevation-relative: face the target first, then close the
+    // elevation gap. Facing changes when the bot drives, so nudge toward the target.
+    const wantFacing: 1 | -1 = s.angle <= 90 ? 1 : -1;
+    const targetElev = wantFacing === 1 ? s.angle : 180 - s.angle;
+    const elev = bot.facing === 1 ? bot.angle : 180 - bot.angle;
+    const dA = bot.facing === wantFacing ? targetElev - elev : 0;
     const dP = s.power - bot.power;
+    if (bot.facing !== wantFacing) it.moveX = wantFacing;
     it.aimDelta = clamp(dA * 2.5, -1, 1);
     it.powerDelta = clamp(dP * 2.5, -1, 1);
-    if (Math.abs(dA) < 1.2 && Math.abs(dP) < 1.5 && bot.cooldown <= 0) it.fire = true;
+    if (bot.facing === wantFacing && Math.abs(dA) < 1.2 && Math.abs(dP) < 1.5 && bot.cooldown <= 0) it.fire = true;
 
     // Movement: chase a nearby crate, otherwise wander a little to be harder to hit.
     const crate = nearestCrate(world, bot);
@@ -115,7 +121,7 @@ export class BotController {
         this.wanderDir = this.rand() < 0.5 ? 0 : this.rand() < 0.5 ? -1 : 1;
         this.wanderTimer = 0.6 + this.rand() * 1.4;
       }
-      it.moveX = this.wanderDir;
+      if (bot.facing === wantFacing) it.moveX = this.wanderDir;
     }
     return it;
   }

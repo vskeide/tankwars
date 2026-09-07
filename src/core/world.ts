@@ -157,7 +157,7 @@ export interface WorldOptions {
 /** Arena-mode tank drive speed in px/s. */
 export const DRIVE_SPEED = 170 * UNIT;
 /** Arena-mode barrel rotation speed cap, deg/s. */
-export const AIM_SPEED = 90;
+export const AIM_SPEED = 70;
 export const POWER_SPEED = 60;
 
 export class World {
@@ -335,10 +335,29 @@ export class World {
 
   // ---- tank control --------------------------------------------------------
 
-  aim(t: Tank, angleDeg: number): void {
+  aim(t: Tank, angleDeg: number, autoFace = true): void {
     t.angle = Math.max(0, Math.min(180, angleDeg));
+    if (!autoFace) return;
     if (t.angle < 88) t.facing = 1;
     else if (t.angle > 92) t.facing = -1;
+  }
+
+  /**
+   * Real-time aiming: raise/lower the barrel relative to the hull's facing, so
+   * "up" always means up whichever way the tank points. Elevation may dip a
+   * little below level and pass slightly beyond vertical.
+   */
+  aimElevation(t: Tank, deltaDeg: number): void {
+    const elev = t.facing === 1 ? t.angle : 180 - t.angle;
+    const next = Math.max(-12, Math.min(96, elev + deltaDeg));
+    t.angle = t.facing === 1 ? next : 180 - next;
+  }
+
+  /** Real-time driving: the hull turns to face the drive direction, mirroring the barrel. */
+  face(t: Tank, dir: 1 | -1): void {
+    if (t.facing === dir) return;
+    t.facing = dir;
+    t.angle = 180 - t.angle;
   }
 
   setPower(t: Tank, p: number): void {

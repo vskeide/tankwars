@@ -649,7 +649,8 @@ export class BattleScene extends Phaser.Scene {
     const raw = humans <= 1 ? this.inputs.sharedIntent() : this.inputs.slotIntent(slot);
     const it = emptyIntent();
     it.moveX = raw.moveX;
-    it.aimDelta = raw.powerDelta * (tank.facing === 1 ? 1 : -1);
+    it.aimDelta = raw.powerDelta; // up = raise barrel, whichever way the hull faces
+    void tank;
     it.cycleWeapon = raw.cycleWeapon;
     const held = raw.fireHeld;
     const prev = this.prevHeld.get(slot) ?? false;

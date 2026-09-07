@@ -127,6 +127,7 @@ export class ArenaMatch {
         this.applyAim(t, it, dt);
         if (it.cycleWeapon !== 0) w.cycleWeapon(t, it.cycleWeapon);
         if (it.moveX !== 0) {
+          w.face(t, it.moveX > 0 ? 1 : -1);
           this.driveAccum[i] += it.moveX * DRIVE_SPEED * dt;
           const whole = Math.trunc(this.driveAccum[i]);
           if (whole !== 0) {
@@ -168,7 +169,7 @@ export class ArenaMatch {
 
   private applyAim(t: Tank, it: Intent | undefined, dt: number): void {
     if (!it || !t.alive) return;
-    if (it.aimDelta !== 0) this.world.aim(t, t.angle + it.aimDelta * AIM_SPEED * dt);
+    if (it.aimDelta !== 0) this.world.aimElevation(t, it.aimDelta * AIM_SPEED * dt);
     if (it.powerDelta !== 0) this.world.setPower(t, t.power + it.powerDelta * POWER_SPEED * dt);
   }
 
