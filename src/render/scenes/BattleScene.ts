@@ -169,7 +169,7 @@ export class BattleScene extends Phaser.Scene {
 
   private helpLines(): string[] {
     if (this.turn) {
-      const move = this.world.mode.movement ? ['A / D            drive (uses fuel)'] : [];
+      const move = this.world.mode.movement ? ['A / D            drive along the ground (uses fuel, refills each turn)'] : [];
       return [
         '← / →            aim barrel',
         '↑ / ↓            power',
@@ -180,6 +180,7 @@ export class BattleScene extends Phaser.Scene {
       ];
     }
     return [
+      'Solo: any set works — A/D or ←→ drive, W/S or ↑↓ aim, SPACE/ENTER hold to charge',
       'P1  WASD move/aim   SPACE fire   Q weapon',
       'P2  arrows          ENTER fire   RShift weapon',
       'P3  IJKL            O fire       U weapon',
@@ -638,7 +639,9 @@ export class BattleScene extends Phaser.Scene {
 
   /** Arena: ←→ drive, ↑↓ aim, hold fire to charge power, release to fire. */
   private arenaIntent(slot: number, tank: Tank, dt: number): Intent {
-    const raw = this.inputs.slotIntent(slot);
+    // A lone human may use any key set (WASD or arrows, Space or Enter).
+    const humans = this.world.tanks.filter((t) => !t.isBot).length;
+    const raw = humans <= 1 ? this.inputs.sharedIntent() : this.inputs.slotIntent(slot);
     const it = emptyIntent();
     it.moveX = raw.moveX;
     it.aimDelta = raw.powerDelta * (tank.facing === 1 ? 1 : -1);
@@ -745,16 +748,18 @@ export class BattleScene extends Phaser.Scene {
       const m = this.turn;
       const cls = this.world.mode.tankClasses ? ` · ${m.currentTank.cls.name}` : '';
       const fuel = this.world.mode.movement ? ` · fuel ${m.currentTank.fuel}` : '';
-      return `Round ${m.round}/${this.setup.rounds} · ${this.world.mode.name}${cls}${fuel} · ${m.phase === 'aim' ? '←→ aim  ↑↓ power  SPACE fire  TAB weapon  H help' : 'firing…'}`;
+      const drive = this.world.mode.movement ? '  A/D drive' : '';
+      return `Round ${m.round}/${this.setup.rounds} · ${this.world.mode.name}${cls}${fuel} · ${m.phase === 'aim' ? `←→ aim  ↑↓ power${drive}  SPACE fire  TAB weapon  H help` : 'firing…'}`;
     }
     if (this.campaign) {
       const c = this.campaign;
       const li = LEVELS.findIndex((l) => l.id === c.level.id) + 1;
-      return `Campaign ${li}/${LEVELS.length} · ${c.level.name} · ${c.phase === 'brief' ? c.level.brief : '←→ drive  ↑↓ aim  hold FIRE to charge  TAB weapon'}`;
+      return `Campaign ${li}/${LEVELS.length} · ${c.level.name} · ${c.phase === 'brief' ? c.level.brief : 'A/D or ←→ drive  W/S or ↑↓ aim  hold SPACE to charge, release to fire  TAB weapon'}`;
     }
     const a = this.arena!;
     if (a.phase === 'countdown') return `Round ${a.round}/${this.setup.rounds} · ARENA · starting in ${Math.ceil(a.countdown)}`;
-    return `Round ${a.round}/${this.setup.rounds} · ARENA · ←→ drive  ↑↓ aim  hold FIRE to charge  H help`;
+    const solo = this.world.tanks.filter((t) => !t.isBot).length <= 1;
+    return `Round ${a.round}/${this.setup.rounds} · ARENA · ${solo ? 'A/D or ←→ drive  W/S or ↑↓ aim  hold SPACE to charge' : 'per-player keys (H)  ←→ drive  ↑↓ aim  hold FIRE to charge'}  H help`;
   }
 
   private drawAimAssist(): void {

@@ -20,9 +20,10 @@ arena for up to four players on one keyboard, and (coming) a campaign with bosse
 Turn-based (hotseat, shared keyboard): `←→` aim · `↑↓` power · `A/D` drive (Advanced) ·
 `Space` fire · `Tab` weapon · `P` pause · `M` mute · `Esc` menu.
 
-Arena (one key set per player): P1 `WASD` + `Space`/`Q` · P2 arrows + `Enter`/`RShift` ·
-P3 `IJKL` + `O`/`U` · P4 numpad `4/6/8/5` + `0`/`+`. Left/right drive, up/down aim, hold
-fire to charge. Gamepads map to free slots.
+Arena and Campaign (real time): left/right drive, up/down aim, **hold fire to charge,
+release to shoot**, `Tab` weapon. Solo: any key set works (WASD or arrows, Space or Enter).
+Hotseat: P1 `WASD` + `Space`/`Q` · P2 arrows + `Enter`/`RShift` · P3 `IJKL` + `O`/`U` ·
+P4 numpad `4/6/8/5` + `0`/`+`. Gamepads map to free slots. `N` toggles music.
 
 ## Develop
 

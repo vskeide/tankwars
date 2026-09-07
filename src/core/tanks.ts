@@ -55,7 +55,7 @@ export const TANK_CLASSES: readonly TankClass[] = [
     hp: 100,
     armour: 1,
     shots: 1,
-    fuel: 0,
+    fuel: 90,
     climb: 45,
     halfWidth: 11,
     halfHeight: 7,
