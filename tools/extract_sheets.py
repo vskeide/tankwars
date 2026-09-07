@@ -162,6 +162,41 @@ def order_by_rows(boxes, rows: int | None):
     return out
 
 
+def cyan_markers(img: Image.Image) -> list[dict]:
+    """Centres of #00FFFF-ish blobs (weapon mount markers), sprite px from bottom-centre."""
+    a = np.asarray(img).astype(int)
+    r, g, b, al = a[..., 0], a[..., 1], a[..., 2], a[..., 3]
+    mask = (al > 100) & (g > 170) & (b > 170) & (r < 120)
+    h, w = mask.shape
+    out = []
+    for x0, y0, x1, y1, area in components(mask):
+        if area < 4:
+            continue
+        out.append({"dx": round((x0 + x1) / 2 - w / 2), "dy": round((y0 + y1) / 2 - h)})
+    out.sort(key=lambda m: m["dx"])
+    return out
+
+
+def inpaint_cyan(img: Image.Image) -> Image.Image:
+    """Replace cyan marker pixels with the median of nearby non-cyan pixels."""
+    a = np.asarray(img).copy()
+    r, g, b, al = a[..., 0].astype(int), a[..., 1].astype(int), a[..., 2].astype(int), a[..., 3]
+    mask = (al > 100) & (g > 170) & (b > 170) & (r < 120)
+    ys, xs = np.nonzero(mask)
+    h, w = mask.shape
+    for y, x in zip(ys, xs):
+        for rad in (2, 4, 6):
+            y0, y1 = max(0, y - rad), min(h, y + rad + 1)
+            x0, x1 = max(0, x - rad), min(w, x + rad + 1)
+            patch = a[y0:y1, x0:x1].reshape(-1, 4)
+            pm = mask[y0:y1, x0:x1].reshape(-1)
+            ok = patch[(~pm) & (patch[:, 3] > 100)]
+            if len(ok) >= 3:
+                a[y, x, :3] = np.median(ok[:, :3], axis=0)
+                break
+    return Image.fromarray(a, "RGBA")
+
+
 def process(path: Path, rows: int | None = None) -> None:
     img = Image.open(path).convert("RGB")
     arr = np.asarray(img)
@@ -207,9 +242,15 @@ def process(path: Path, rows: int | None = None) -> None:
         sprite = arr[y0p : y1p + 1, x0p : x1p + 1]
         alpha = foreground_mask(sprite, bg, tol * 0.7)
         crisp = crispen(sprite, alpha, block, key_is_magenta=not dark_bg)
+        entry = {"index": i, "box": [int(x0p), int(y0p), int(x1p), int(y1p)], "size": list(crisp.size)}
+        if path.stem.startswith("boss-"):
+            mounts = cyan_markers(crisp)
+            if mounts:
+                entry["mounts"] = mounts
+                crisp = inpaint_cyan(crisp)
         name = f"{i:02d}"
         crisp.save(out_dir / f"{name}.png")
-        meta["sprites"].append({"index": i, "box": [int(x0p), int(y0p), int(x1p), int(y1p)], "size": list(crisp.size)})
+        meta["sprites"].append(entry)
     (out_dir / "sheet.json").write_text(json.dumps(meta, indent=2))
 
     print(f"{path.name}: bg={meta['background']} block={block:.2f}px  {len(kept)} sprites -> {out_dir.relative_to(ROOT)}")

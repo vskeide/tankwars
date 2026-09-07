@@ -53,16 +53,15 @@ def main() -> None:
         d = ATLAS / f"boss-{boss}"
         names = json.loads((d / "names.json").read_text())
         body_idx = next(k for k, v in names.items() if v == f"boss.{boss}.body")
-        img = Image.open(d / f"{body_idx}.png")
-        w, h = img.size
-        pts = cyan_blobs(img)
-        pts.sort(key=lambda p: p[0])
-        result[boss] = {
-            "width": w,
-            "height": h,
-            "mounts": [{"dx": round(x - w / 2), "dy": round(y - h)} for x, y in pts],
-        }
-        print(f"{boss}: {w}x{h}, {len(pts)} mounts -> {result[boss]['mounts']}")
+        sheet = json.loads((d / "sheet.json").read_text())
+        entry = next(e for e in sheet["sprites"] if f"{e['index']:02d}" == body_idx)
+        w, h = entry["size"]
+        mounts = entry.get("mounts")
+        if not mounts:  # fall back to scanning the sprite (pre-inpaint extraction)
+            pts = sorted(cyan_blobs(Image.open(d / f"{body_idx}.png")), key=lambda p: p[0])
+            mounts = [{"dx": round(x - w / 2), "dy": round(y - h)} for x, y in pts]
+        result[boss] = {"width": w, "height": h, "mounts": mounts}
+        print(f"{boss}: {w}x{h}, {len(mounts)} mounts -> {mounts}")
 
     lines = [
         "/**",

@@ -16,7 +16,7 @@ export const BOSS_MOUNTS: Record<string, BossMounts> = {
     'mounts': [
       {
         'dx': -83,
-        'dy': -59
+        'dy': -60
       },
       {
         'dx': -43,
@@ -24,11 +24,11 @@ export const BOSS_MOUNTS: Record<string, BossMounts> = {
       },
       {
         'dx': 66,
-        'dy': -105
+        'dy': -106
       },
       {
         'dx': 80,
-        'dy': -59
+        'dy': -60
       }
     ]
   },

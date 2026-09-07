@@ -156,9 +156,13 @@ export class TerrainView {
           const boundary = 110 + (noise(x, y, 120) - 0.5) * 90 + (noise(x, y, 23) - 0.5) * 16;
           const useDeep = depth > boundary + (dither(x, y, 0.5) ? 6 : -6);
           const pat = useDeep ? deep : surf;
-          const [sr, sg, sb] = this.sample(pat, x, y, 0);
+          // Domain warp: bend the sampling grid with smooth noise so the mirrored
+          // tile's symmetry never lines up into a visible lattice.
+          const wx = x + Math.round((noise(x, y, 70) - 0.5) * 34) + Math.round((noise(x + 900, y, 19) - 0.5) * 6);
+          const wy = y + Math.round((noise(x, y + 700, 70) - 0.5) * 34) + Math.round((noise(x, y + 300, 19) - 0.5) * 6);
+          const [sr, sg, sb] = this.sample(pat, wx, wy, 0);
           // Second sample at another scale/offset, blended by slow noise: breaks the repeat.
-          const [tr, tg, tb] = this.sample(pat, x + 41, y + 17, 1);
+          const [tr, tg, tb] = this.sample(pat, wx + 41, wy + 17, 1);
           const mix = noise(x, y, 61) * 0.55;
           r = sr * (1 - mix) + tr * mix;
           g = sg * (1 - mix) + tg * mix;
