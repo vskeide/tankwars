@@ -71,7 +71,7 @@ npm run build
 ## Roadmap (in order)
 
 1. Turn-based Classic/Modern/Advanced + Arena playable ✔
-2. Separate hull/turret/barrel sheets → true turret rotation & recoil
-3. Campaign: `src/core/campaign/` — level scripts, enemy waves, boss hardpoint definitions
+2. Campaign: levels, enemy waves, two bosses with hardpoints and phases ✔ (needs play-tuning)
+3. Separate hull/turret/barrel sheets → true turret rotation & recoil
 4. Arena: jump/hop hulls, mines, stationary defences
-5. Gamepad polish, settings, persistence (localStorage)
+5. Menu mouse support, gamepad polish, settings, persistence (localStorage)

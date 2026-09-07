@@ -138,12 +138,39 @@ export class BattleScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-ESC', () => this.scene.start('menu'));
     this.input.keyboard!.on('keydown-P', () => (this.paused = !this.paused));
     this.input.keyboard!.on('keydown-M', () => (this.sfx.muted = !this.sfx.muted));
+    this.input.keyboard!.on('keydown-H', () => this.hud.toggleHelp(this.helpLines()));
+    this.input.keyboard!.on('keydown-F', () => {
+      if (this.scale.isFullscreen) this.scale.stopFullscreen();
+      else this.scale.startFullscreen();
+    });
     this.input.keyboard!.once('keydown', () => this.sfx.unlock());
     this.input.once('pointerdown', () => this.sfx.unlock());
 
     if (this.campaign) this.hud.showBanner(`${this.campaign.level.name.toUpperCase()}\n${this.campaign.level.brief}`, 3200);
     else this.hud.showBanner(this.arena ? `ROUND ${this.roundNumber()}\nGET READY` : `ROUND ${this.roundNumber()}\n${this.turn!.currentTank.name.toUpperCase()} FIRST`, 1600);
     this.events.on('wake', () => this.onWake());
+  }
+
+  private helpLines(): string[] {
+    if (this.turn) {
+      const move = this.world.mode.movement ? ['A / D            drive (uses fuel)'] : [];
+      return [
+        '← / →            aim barrel',
+        '↑ / ↓            power',
+        ...move,
+        'SPACE            fire',
+        'TAB / Shift+TAB  next / previous weapon',
+        'P  pause    M  mute    F  fullscreen    ESC  menu    H  close',
+      ];
+    }
+    return [
+      'P1  WASD move/aim   SPACE fire   Q weapon',
+      'P2  arrows          ENTER fire   RShift weapon',
+      'P3  IJKL            O fire       U weapon',
+      'P4  numpad 4/6 8/5  0 fire       + weapon',
+      'left/right drive · up/down aim · HOLD fire to charge, release to shoot',
+      'P  pause    M  mute    F  fullscreen    ESC  menu    H  close',
+    ];
   }
 
   private roundNumber(): number {
@@ -548,7 +575,7 @@ export class BattleScene extends Phaser.Scene {
       const m = this.turn;
       const cls = this.world.mode.tankClasses ? ` · ${m.currentTank.cls.name}` : '';
       const fuel = this.world.mode.movement ? ` · fuel ${m.currentTank.fuel}` : '';
-      return `Round ${m.round}/${this.setup.rounds} · ${this.world.mode.name}${cls}${fuel} · ${m.phase === 'aim' ? '←→ aim  ↑↓ power  SPACE fire  TAB weapon' : 'firing…'}`;
+      return `Round ${m.round}/${this.setup.rounds} · ${this.world.mode.name}${cls}${fuel} · ${m.phase === 'aim' ? '←→ aim  ↑↓ power  SPACE fire  TAB weapon  H help' : 'firing…'}`;
     }
     if (this.campaign) {
       const c = this.campaign;
@@ -557,7 +584,7 @@ export class BattleScene extends Phaser.Scene {
     }
     const a = this.arena!;
     if (a.phase === 'countdown') return `Round ${a.round}/${this.setup.rounds} · ARENA · starting in ${Math.ceil(a.countdown)}`;
-    return `Round ${a.round}/${this.setup.rounds} · ARENA · ←→ drive  ↑↓ aim  hold FIRE to charge`;
+    return `Round ${a.round}/${this.setup.rounds} · ARENA · ←→ drive  ↑↓ aim  hold FIRE to charge  H help`;
   }
 
   private drawAimAssist(): void {

@@ -18,6 +18,8 @@ export class Hud {
   private readonly windText: Phaser.GameObjects.Text;
   private readonly status: Phaser.GameObjects.Text;
   private readonly banner: Phaser.GameObjects.Text;
+  private readonly rack: Phaser.GameObjects.Text;
+  private readonly help: Phaser.GameObjects.Container;
   private readonly bars = new Map<number, { bg: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text }>();
 
   constructor(private scene: Phaser.Scene, private worldY: number) {
@@ -27,12 +29,33 @@ export class Hud {
     this.weapon = scene.add.text(760, 10, '', FONT).setDepth(101).setScrollFactor(0);
     this.windText = scene.add.text(NATIVE_W - 330, 10, 'WIND', { ...FONT, color: hex(PAL.uiTextDim) }).setDepth(101).setScrollFactor(0);
     this.status = scene.add.text(8, NATIVE_H - 20, '', { ...FONT, fontSize: '13px', color: hex(PAL.uiTextDim), backgroundColor: hex(PAL.uiInk) }).setDepth(101).setScrollFactor(0);
+    this.rack = scene.add.text(NATIVE_W - 12, HUD_H + 8, '', { ...FONT, fontSize: '13px', color: hex(PAL.uiTextDim), align: 'right', backgroundColor: hex(PAL.uiInk) }).setOrigin(1, 0).setDepth(101).setScrollFactor(0).setAlpha(0.9);
+    this.help = scene.add.container(0, 0).setDepth(150).setScrollFactor(0).setVisible(false);
     this.banner = scene.add
       .text(NATIVE_W / 2, 330, '', { fontFamily: 'monospace', fontSize: '36px', color: hex(PAL.uiText), stroke: hex(PAL.uiInk), strokeThickness: 6, align: 'center' })
       .setOrigin(0.5)
       .setDepth(120)
       .setScrollFactor(0)
       .setAlpha(0);
+  }
+
+  /** Toggle the controls overlay (H). */
+  toggleHelp(lines: string[]): void {
+    if (this.help.visible) {
+      this.help.setVisible(false);
+      return;
+    }
+    this.help.removeAll(true);
+    const w = 620;
+    const h = 60 + lines.length * 26;
+    const x = NATIVE_W / 2 - w / 2;
+    const y = NATIVE_H / 2 - h / 2;
+    const bg = this.scene.add.graphics();
+    bg.fillStyle(PAL.uiInk, 0.94).fillRect(x, y, w, h);
+    bg.lineStyle(2, PAL.uiEdge, 1).strokeRect(x, y, w, h);
+    const title = this.scene.add.text(NATIVE_W / 2, y + 16, 'CONTROLS', { ...FONT, fontSize: '20px', color: hex(PAL.uiEdge) }).setOrigin(0.5, 0);
+    const body = this.scene.add.text(x + 30, y + 54, lines.join('\n'), { ...FONT, fontSize: '16px', color: hex(PAL.uiText), lineSpacing: 8 });
+    this.help.add([bg, title, body]).setVisible(true);
   }
 
   update(world: World, current: Tank | null, statusLine: string): void {
@@ -61,6 +84,18 @@ export class Hud {
       this.weapon.setText('');
     }
     this.status.setText(statusLine);
+
+    // Weapon rack for the current tank.
+    if (current) {
+      const rows: string[] = [];
+      for (const [id, n] of current.ammo) {
+        if (n === 0) continue;
+        const w = weaponById(id);
+        const sel = id === current.selectedWeapon;
+        rows.push(`${sel ? '▶ ' : '  '}${w.name.padEnd(15)} ${n < 0 ? '∞' : String(n).padStart(2)}`);
+      }
+      this.rack.setText(rows.join('\n'));
+    } else this.rack.setText('');
 
     // Wind gauge: centred bar, fills left or right.
     const wx = NATIVE_W - 230;
