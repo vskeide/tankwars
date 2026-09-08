@@ -1,0 +1,41 @@
+{
+ "scale": 1,
+ "frames": {
+  "boss.hive.body": {
+   "x": 0,
+   "y": 0,
+   "w": 355,
+   "h": 157
+  },
+  "boss.hive.damaged": {
+   "x": 0,
+   "y": 158,
+   "w": 361,
+   "h": 156
+  },
+  "boss.hive.rockets": {
+   "x": 0,
+   "y": 315,
+   "w": 105,
+   "h": 79
+  },
+  "boss.hive.drill": {
+   "x": 106,
+   "y": 315,
+   "w": 130,
+   "h": 71
+  },
+  "boss.hive.trigun": {
+   "x": 237,
+   "y": 315,
+   "w": 92,
+   "h": 67
+  },
+  "boss.hive.drone": {
+   "x": 330,
+   "y": 315,
+   "w": 85,
+   "h": 64
+  }
+ }
+}

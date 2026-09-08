@@ -1,0 +1,41 @@
+{
+ "scale": 1,
+ "frames": {
+  "boss.behemoth.body": {
+   "x": 0,
+   "y": 0,
+   "w": 311,
+   "h": 153
+  },
+  "boss.behemoth.damaged": {
+   "x": 0,
+   "y": 154,
+   "w": 311,
+   "h": 149
+  },
+  "boss.behemoth.cannon": {
+   "x": 0,
+   "y": 304,
+   "w": 157,
+   "h": 79
+  },
+  "boss.behemoth.mortar": {
+   "x": 158,
+   "y": 304,
+   "w": 110,
+   "h": 72
+  },
+  "boss.behemoth.gun": {
+   "x": 269,
+   "y": 304,
+   "w": 102,
+   "h": 59
+  },
+  "boss.behemoth.gatling": {
+   "x": 0,
+   "y": 384,
+   "w": 90,
+   "h": 57
+  }
+ }
+}

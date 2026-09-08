@@ -58,7 +58,7 @@ Items marked ★ were asked for by Vebjørn; the rest are my suggestions.
 | # | Item | Effort | Notes |
 |---|---|---|---|
 | 31 | ✔ **Static deploy** — built into `my-website/public/games/tankwars`, live at skeide.me/ai/games/tankwars | S | Re-deploy = rebuild, copy `dist/` over, commit the website |
-| 31b | **Pack the atlas into spritesheets**: first load fetches 340 separate PNGs; one packed sheet per group would cut it to a handful of requests | M | Extractor already knows the groups; needs a packer plus frame JSON |
+| 31b | ✔ **Pack the atlas into spritesheets** — `tools/pack_atlas.py` writes one sheet + frame JSON per group (19 sheets, 39 requests instead of 340); boot splits frames back into per-id textures | M | Re-run it after every extraction; `public/atlas` stays as the dev fallback |
 | 32 | **Desktop build** (Tauri or Electron) for a Steam-like windowed app with fullscreen and gamepad focus | M | Tauri keeps it small |
 | 33 | **Settings screen**: volume sliders, tank size, aim speed, key rebinding per slot, colour-blind team palette | M | `settings.ts` exists |
 | 34 | **Save/continue a turn-based match** (serialise World + match state) | S | Core is plain data |

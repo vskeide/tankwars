@@ -39,6 +39,7 @@ port). If you need a browser API in core, you are in the wrong layer.
 | `src/render/terrainView.ts` | Terrain byte-map → canvas texture, dirty band only |
 | `src/render/audio.ts` | sfxr-style synthesised sound effects, no sample files |
 | `tools/extract_sheets.py` | Segments AI-generated sprite sheets in `assets/raw/` into `public/atlas/` |
+| `tools/pack_atlas.py` | Packs `public/atlas/` into one sheet + frame JSON per group in `public/packed/` — **run after every extraction**; the game loads these and splits them back into per-id textures at boot |
 | `assets/PROMPTS.md` | Every sheet to generate, with file name and prompt |
 
 ## Assets

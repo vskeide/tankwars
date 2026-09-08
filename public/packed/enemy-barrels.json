@@ -1,0 +1,35 @@
+{
+ "scale": 1,
+ "frames": {
+  "ebarrel.missile": {
+   "x": 0,
+   "y": 0,
+   "w": 32,
+   "h": 24
+  },
+  "ebarrel.flame": {
+   "x": 33,
+   "y": 0,
+   "w": 45,
+   "h": 24
+  },
+  "ebarrel.heavy": {
+   "x": 0,
+   "y": 25,
+   "w": 69,
+   "h": 23
+  },
+  "ebarrel.medium": {
+   "x": 0,
+   "y": 49,
+   "w": 55,
+   "h": 17
+  },
+  "ebarrel.light": {
+   "x": 0,
+   "y": 67,
+   "w": 38,
+   "h": 15
+  }
+ }
+}

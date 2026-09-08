@@ -1,0 +1,41 @@
+{
+ "scale": 1,
+ "frames": {
+  "turret.strider": {
+   "x": 0,
+   "y": 0,
+   "w": 46,
+   "h": 34
+  },
+  "turret.bulwark": {
+   "x": 47,
+   "y": 0,
+   "w": 59,
+   "h": 29
+  },
+  "turret.line": {
+   "x": 0,
+   "y": 35,
+   "w": 49,
+   "h": 28
+  },
+  "turret.scout": {
+   "x": 50,
+   "y": 35,
+   "w": 41,
+   "h": 26
+  },
+  "turret.battery": {
+   "x": 0,
+   "y": 64,
+   "w": 54,
+   "h": 26
+  },
+  "turret.aegis": {
+   "x": 0,
+   "y": 91,
+   "w": 56,
+   "h": 26
+  }
+ }
+}

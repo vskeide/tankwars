@@ -11,6 +11,15 @@ interface Manifest {
   sheets: string[];
 }
 
+export interface PackedManifest {
+  groups: string[];
+}
+
+interface PackedFrames {
+  scale: number;
+  frames: Record<string, { x: number; y: number; w: number; h: number }>;
+}
+
 const ids = new Set<string>();
 /** Display scale per sprite id — sheets differ in how large they drew things. */
 const scales = new Map<string, number>();
@@ -41,6 +50,45 @@ export function queueAtlas(scene: Phaser.Scene, manifest: Manifest, names: Recor
     scene.load.image(id, `atlas/${c.sheet}/${c.index}.png`);
     ids.add(id);
     scales.set(id, c.scale);
+  }
+}
+
+/**
+ * Queue the packed sheets: one image + one JSON per group instead of one file
+ * per sprite. Loading 340 individual PNGs was slow and could stall Phaser's
+ * download queue on a real CDN, so this is the production path.
+ */
+export function queuePacked(scene: Phaser.Scene, manifest: PackedManifest): void {
+  for (const group of manifest.groups) {
+    scene.load.image(`packed:${group}`, `packed/${group}.png`);
+    scene.load.json(`packedjson:${group}`, `packed/${group}.json`);
+  }
+}
+
+/**
+ * Cut every frame out of the packed sheets into its own canvas texture keyed by
+ * sprite id. The rest of the render layer reads whole textures (hull metrics,
+ * team recolouring, terrain tiles), so individual textures keep all of that
+ * working unchanged — and the cost is one drawImage per sprite at boot.
+ */
+export function splitPacked(scene: Phaser.Scene, manifest: PackedManifest): void {
+  for (const group of manifest.groups) {
+    const data = scene.cache.json.get(`packedjson:${group}`) as PackedFrames | undefined;
+    const sheetKey = `packed:${group}`;
+    if (!data || !scene.textures.exists(sheetKey)) continue;
+    const sheet = scene.textures.get(sheetKey).getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+    for (const [id, f] of Object.entries(data.frames)) {
+      // Later groups win for a duplicated id, matching the old manifest order.
+      if (scene.textures.exists(id)) scene.textures.remove(id);
+      const c = document.createElement('canvas');
+      c.width = f.w;
+      c.height = f.h;
+      c.getContext('2d')!.drawImage(sheet, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+      scene.textures.addCanvas(id, c);
+      ids.add(id);
+      scales.set(id, data.scale || 2);
+    }
+    scene.textures.remove(sheetKey);
   }
 }
 

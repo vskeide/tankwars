@@ -1,0 +1,53 @@
+{
+ "scale": 1,
+ "frames": {
+  "barrel.missile": {
+   "x": 0,
+   "y": 0,
+   "w": 46,
+   "h": 27
+  },
+  "barrel.plasma": {
+   "x": 47,
+   "y": 0,
+   "w": 59,
+   "h": 24
+  },
+  "barrel.mortar": {
+   "x": 0,
+   "y": 28,
+   "w": 46,
+   "h": 24
+  },
+  "barrel.heavy": {
+   "x": 47,
+   "y": 28,
+   "w": 61,
+   "h": 22
+  },
+  "barrel.railgun": {
+   "x": 0,
+   "y": 53,
+   "w": 61,
+   "h": 22
+  },
+  "barrel.standard": {
+   "x": 62,
+   "y": 53,
+   "w": 56,
+   "h": 21
+  },
+  "barrel.artillery": {
+   "x": 0,
+   "y": 76,
+   "w": 93,
+   "h": 21
+  },
+  "barrel.light": {
+   "x": 0,
+   "y": 98,
+   "w": 48,
+   "h": 19
+  }
+ }
+}

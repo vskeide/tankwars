@@ -6,9 +6,10 @@
   "description": "Turn-based artillery game — a modernised Tank Wars, three modes: classic, modern, advanced",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node tools/prune-dist.mjs",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "assets": "py -3 tools/extract_sheets.py && py -3 tools/pack_atlas.py && py -3 tools/boss_mounts.py"
   },
   "dependencies": {
     "phaser": "^3.90.0"

@@ -1,0 +1,23 @@
+{
+ "groups": [
+  "barrels",
+  "boss-behemoth",
+  "boss-hive",
+  "boss-juggernaut",
+  "enemy-barrels",
+  "enemy-hulls",
+  "enemy-turrets",
+  "fx-explosions",
+  "fx-misc",
+  "pickups",
+  "player-hulls",
+  "player-turrets",
+  "portraits",
+  "projectiles",
+  "sheet-misc",
+  "sheet-tank",
+  "tanks-v2",
+  "terrain-tiles",
+  "ui"
+ ]
+}
