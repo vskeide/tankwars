@@ -6,6 +6,12 @@ arena for up to four players on one keyboard, and (coming) a campaign with bosse
 
 16-bit pixel art on a native 1080p grid, sprites at 2×. Browser only, no install.
 
+**Play it:** [skeide.me/ai/games/tankwars](https://www.skeide.me/ai/games/tankwars)
+
+Source is published for reading. The repository is read-only: issues and pull
+requests are not accepted, and `main` is protected. Fork it if you want to build
+on it.
+
 ## Modes
 
 | Mode | What |

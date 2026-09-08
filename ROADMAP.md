@@ -57,12 +57,20 @@ Items marked ★ were asked for by Vebjørn; the rest are my suggestions.
 
 | # | Item | Effort | Notes |
 |---|---|---|---|
-| 31 | **Static deploy** to GitHub Pages / Cloudflare Pages so it plays from a URL on any machine | S | `vite build` + one workflow file |
+| 31 | ✔ **Static deploy** — built into `my-website/public/games/tankwars`, live at skeide.me/ai/games/tankwars | S | Re-deploy = rebuild, copy `dist/` over, commit the website |
+| 31b | **Pack the atlas into spritesheets**: first load fetches 340 separate PNGs; one packed sheet per group would cut it to a handful of requests | M | Extractor already knows the groups; needs a packer plus frame JSON |
 | 32 | **Desktop build** (Tauri or Electron) for a Steam-like windowed app with fullscreen and gamepad focus | M | Tauri keeps it small |
 | 33 | **Settings screen**: volume sliders, tank size, aim speed, key rebinding per slot, colour-blind team palette | M | `settings.ts` exists |
 | 34 | **Save/continue a turn-based match** (serialise World + match state) | S | Core is plain data |
 | 35 | **Unit tests for the core** (vitest): ballistics, terrain collapse, damage falloff, bot solver convergence | S | `tools/smoke.ts` is the seed |
 | 36 | **Asset pipeline hardening**: `npm run assets` runs extractor + mounts + contact sheets; a check that every id in `names.json` has a file | S | Makes new sheets a one-command drop-in |
+
+## Deploy
+
+The game is served from the website repo (option A): `npm run build` in this repo, copy
+`dist/*` into `my-website/public/games/tankwars/`, commit the website. The page at
+`app/[locale]/ai/games/tankwars/page.tsx` embeds it in an iframe; `vite.config.ts` uses
+`base: './'` so it works from that sub-path.
 
 ## Done tonight (2026-09-08/09)
 
