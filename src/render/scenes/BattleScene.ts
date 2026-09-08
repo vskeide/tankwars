@@ -48,6 +48,31 @@ interface ProjView {
   trail: Phaser.GameObjects.Graphics;
 }
 
+/** One projectile in a replay frame. */
+interface RecProjectile {
+  x: number;
+  y: number;
+  key: string;
+  rot: number;
+}
+
+/**
+ * One tank in a replay frame. The replay writes these back onto the live tanks
+ * so the existing sprite sync draws them — including the one that was destroyed,
+ * which is otherwise hidden by the time the round ends.
+ */
+interface RecTank {
+  i: number;
+  x: number;
+  y: number;
+  tilt: number;
+  angle: number;
+  facing: 1 | -1;
+  alive: boolean;
+  hp: number;
+  shield: number;
+}
+
 /**
  * Renders a World and drives one of the two rules layers with a fixed-step
  * accumulator. Human intents come from the InputRouter, bot intents from
@@ -101,8 +126,22 @@ export class BattleScene extends Phaser.Scene {
    * projectile position per sim step plus the explosions; if that shot ended
    * the round we play it back in slow motion before the round-over card.
    */
-  private rec: { frames: { x: number; y: number; key: string; rot: number }[][]; fx: { step: number; x: number; y: number; radius: number; weapon: import('../../core/weapons').Weapon }[]; killed: boolean } | null = null;
-  private replay: { step: number; acc: number; ghosts: Phaser.GameObjects.Image[]; trail: Phaser.GameObjects.Graphics; label: Phaser.GameObjects.Text; done: boolean } | null = null;
+  private rec: {
+    frames: { projs: RecProjectile[]; tanks: RecTank[] }[];
+    fx: { step: number; x: number; y: number; radius: number; weapon: import('../../core/weapons').Weapon }[];
+    killed: boolean;
+  } | null = null;
+  private replay: {
+    step: number;
+    acc: number;
+    ghosts: Phaser.GameObjects.Image[];
+    trail: Phaser.GameObjects.Graphics;
+    label: Phaser.GameObjects.Text;
+    /** Tank state at the moment the replay started, restored when it ends. */
+    finalTanks: RecTank[];
+    /** Set once playback has reached the end and the outro is running. */
+    finishing: boolean;
+  } | null = null;
   private replayShown = false;
   private backdropKeys: { sky: string; farMesas: string; nearMesas: string } | null = null;
   private bgImages: Phaser.GameObjects.Image[] = [];
@@ -807,11 +846,30 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  /** Snapshot all live projectiles for the replay recording. */
+  /** Snapshot projectiles and tanks for the replay recording. */
   private recordStep(): void {
     if (!this.rec) this.rec = { frames: [], fx: [], killed: false };
-    const frame = this.world.projectiles.map((p) => ({ x: p.pos.x, y: p.pos.y, key: this.projectileTexture(p), rot: Math.atan2(p.vel.y, p.vel.x) }));
-    this.rec.frames.push(frame);
+    this.rec.frames.push({
+      projs: this.world.projectiles.map((p) => ({ x: p.pos.x, y: p.pos.y, key: this.projectileTexture(p), rot: Math.atan2(p.vel.y, p.vel.x) })),
+      tanks: this.world.tanks.map((t) => this.snapshotTank(t)),
+    });
+  }
+
+  private snapshotTank(t: Tank): RecTank {
+    return { i: t.index, x: t.x, y: t.y, tilt: t.tilt, angle: t.angle, facing: t.facing, alive: t.alive, hp: t.hp, shield: t.shield };
+  }
+
+  private restoreTank(s: RecTank): Tank {
+    const t = this.world.tanks[s.i];
+    t.x = s.x;
+    t.y = s.y;
+    t.tilt = s.tilt;
+    t.angle = s.angle;
+    t.facing = s.facing;
+    t.alive = s.alive;
+    t.hp = s.hp;
+    t.shield = s.shield;
+    return t;
   }
 
   private startReplay(): void {
@@ -826,9 +884,22 @@ export class BattleScene extends Phaser.Scene {
       for (const f of rec.fx) f.step -= start;
     }
     const label = this.add.text(0, 0, '◄◄ REPLAY  ·  SPACE to skip', { fontFamily: 'monospace', fontSize: '22px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 5 }).setOrigin(0.5).setDepth(140);
-    this.replay = { step: 0, acc: 0, ghosts: [], trail: this.add.graphics().setDepth(37), label, done: false };
+    this.replay = {
+      step: 0,
+      acc: 0,
+      ghosts: [],
+      trail: this.add.graphics().setDepth(37),
+      label,
+      finalTanks: this.world.tanks.map((t) => this.snapshotTank(t)),
+      finishing: false,
+    };
+    // Live projectile views would sit frozen on screen behind the ghosts.
+    for (const [, v] of this.projViews) {
+      v.sprite.setVisible(false);
+      v.trail.clear();
+    }
     this.paused = true;
-    this.cameras.main.setZoom(1.6);
+    this.cameras.main.setZoom(1.45);
   }
 
   private advanceReplay(frameDt: number): void {
@@ -841,7 +912,12 @@ export class BattleScene extends Phaser.Scene {
       r.step++;
       for (const f of rec.fx) if (f.step === r.step) this.fx.explosion(f.x, f.y, f.radius, f.weapon);
     }
-    const frame = rec.frames[Math.min(r.step, rec.frames.length - 1)] ?? [];
+    const cur = rec.frames[Math.min(r.step, rec.frames.length - 1)];
+    const frame = cur?.projs ?? [];
+    // Tanks as they were during the shot — this is what brings the destroyed
+    // tank back on screen for the replay.
+    for (const s of cur?.tanks ?? []) this.syncTankView(this.restoreTank(s), frameDt);
+    this.hud.update(this.world, null, '');
     // Ghost sprites for each projectile in this frame.
     while (r.ghosts.length < frame.length) r.ghosts.push(this.add.image(0, 0, 'shell').setDepth(36).setScale(SPRITE_SCALE));
     r.ghosts.forEach((g, i) => {
@@ -852,10 +928,13 @@ export class BattleScene extends Phaser.Scene {
     // Trail so far.
     r.trail.clear();
     for (let s = Math.max(0, r.step - 220); s < r.step; s++) {
-      for (const p of rec.frames[s] ?? []) r.trail.fillStyle(PAL.glow, 0.25 + (0.6 * (s - (r.step - 220))) / 220).fillRect(Math.round(p.x), Math.round(p.y + HUD_H), 2, 2);
+      for (const p of rec.frames[s]?.projs ?? []) r.trail.fillStyle(PAL.glow, 0.25 + (0.6 * (s - (r.step - 220))) / 220).fillRect(Math.round(p.x), Math.round(p.y + HUD_H), 2, 2);
     }
-    // Camera follows the first projectile, eases toward the last impact after it is gone.
-    const focus = frame[0] ?? (rec.fx.length ? { x: rec.fx[rec.fx.length - 1].x, y: rec.fx[rec.fx.length - 1].y } : null);
+    // Camera follows the shell, then settles on the impact for the last stretch so
+    // the target — and the tank being destroyed — is in frame when it lands.
+    const impact = rec.fx.length ? rec.fx[rec.fx.length - 1] : null;
+    const nearEnd = r.step > rec.frames.length - 110;
+    const focus = (nearEnd && impact ? { x: impact.x, y: impact.y } : frame[0]) ?? (impact ? { x: impact.x, y: impact.y } : null);
     if (focus) {
       const cam = this.cameras.main;
       const tx = Math.max(NATIVE_W / (2 * cam.zoom), Math.min(NATIVE_W - NATIVE_W / (2 * cam.zoom), focus.x));
@@ -865,12 +944,20 @@ export class BattleScene extends Phaser.Scene {
     // Label pinned to the top of the zoomed view.
     const cam = this.cameras.main;
     r.label.setPosition(cam.midPoint.x, cam.midPoint.y - NATIVE_H / (2 * cam.zoom) + 60 / cam.zoom).setScale(1 / cam.zoom);
-    if (r.step >= rec.frames.length) this.endReplay();
+    // The kill is part of the recording, so playback ends with the wreck already
+    // gone; hold a beat on it before the round-over card.
+    if (r.step >= rec.frames.length && !r.finishing) {
+      r.finishing = true;
+      this.time.delayedCall(700, () => this.endReplay());
+    }
   }
 
   private endReplay(): void {
     const r = this.replay;
     if (!r) return;
+    // Put the tanks back where the round actually ended.
+    for (const s of r.finalTanks) this.syncTankView(this.restoreTank(s), 0);
+    for (const [, v] of this.projViews) v.sprite.setVisible(true);
     r.ghosts.forEach((g) => g.destroy());
     r.trail.destroy();
     r.label.destroy();

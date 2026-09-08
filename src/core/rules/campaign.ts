@@ -105,13 +105,13 @@ export class CampaignLevel {
     const base = tankClassById(this.commander.cls);
     const cls = { ...base, hp: base.hp + perk.hpBonus, fuel: base.fuel + perk.fuelBonus, armour: base.armour * perk.armourMult };
     config.players.forEach((p, i) => {
-      const t = this.world.addTank({ index: i, name: p.name, colour: p.colour, isBot: p.isBot, difficulty: p.difficulty, cls: i === 0 ? cls : base, skin: p.skin, credits: 0 });
+      const t = this.world.addTank({ index: i, name: p.name, colour: p.colour, isBot: p.isBot, difficulty: p.difficulty, cls: i === 0 ? cls : base, skin: p.skin, credits: 0, team: 0 });
       this.playerIndices.push(t.index);
     });
     this.level.enemies.forEach((e, k) => {
       const def = ENEMY_CLASS[e.kind];
       const ecls = tankClassById(def.cls);
-      const t = this.world.addTank({ index: this.world.tanks.length, name: `${e.kind[0].toUpperCase()}${e.kind.slice(1)} ${k + 1}`, colour: 5, isBot: true, difficulty: shiftTier(e.difficulty, this.difficulty.enemyShift), cls: ecls, skin: def.skin, credits: 0 });
+      const t = this.world.addTank({ index: this.world.tanks.length, name: `${e.kind[0].toUpperCase()}${e.kind.slice(1)} ${k + 1}`, colour: 5, isBot: true, difficulty: shiftTier(e.difficulty, this.difficulty.enemyShift), cls: ecls, skin: def.skin, credits: 0, team: 1 });
       t.maxHp = Math.round(ecls.hp * def.hpScale * this.difficulty.enemyHpMult);
       this.enemyIndices.push(t.index);
     });

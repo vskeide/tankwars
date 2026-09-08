@@ -146,8 +146,12 @@ export function decide(world: World, bot: Tank, rand: () => number): Solution {
 }
 
 function pickTarget(world: World, bot: Tank, rand: () => number): Damageable {
-  const hard = world.hardpoints.filter((h) => h.alive);
-  const others: Damageable[] = [...world.aliveTanks().filter((t) => t.index !== bot.index), ...hard];
+  // Only hostile teams are candidates — allies and one's own boss are off limits.
+  const hostile = (d: Damageable) => d.alive && d.team !== bot.team;
+  const others: Damageable[] = [
+    ...world.aliveTanks().filter((t) => t.index !== bot.index && hostile(t)),
+    ...world.hardpoints.filter(hostile),
+  ];
   if (others.length === 0) return bot;
   if (others.length === 1) return others[0];
   const scored = others.map((t) => {

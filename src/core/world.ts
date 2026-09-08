@@ -31,6 +31,13 @@ export interface Damageable {
   alive: boolean;
   /** Owner index for tanks; boss index for hardpoints; -1 otherwise. */
   owner: number;
+  /**
+   * Who this fights for. In free-for-all modes every tank gets its own team, so
+   * everyone is hostile to everyone; in the campaign the players share team 0 and
+   * the enemies (including boss hardpoints) share team 1. Bots only target other
+   * teams — without this, campaign enemies shoot each other.
+   */
+  team: number;
 }
 
 export interface Tank extends Damageable {
@@ -212,6 +219,8 @@ export class World {
     cls: TankClass;
     skin?: string;
     credits: number;
+    /** Defaults to the tank's own index: free-for-all. */
+    team?: number;
   }): Tank {
     const ammo = new Map<string, number>();
     ammo.set(defaultWeaponId(), -1);
@@ -233,6 +242,7 @@ export class World {
       maxHp: setup.cls.hp,
       alive: true,
       owner: setup.index,
+      team: setup.team ?? setup.index,
       tilt: 0,
       vy: 0,
       airborne: false,
@@ -278,8 +288,8 @@ export class World {
     this.snapToGround(t);
   }
 
-  addHardpoint(h: Omit<Hardpoint, 'id' | 'kind' | 'alive' | 'owner'>): Hardpoint {
-    const hp: Hardpoint = { ...h, id: this.nextId++, kind: 'hardpoint', alive: true, owner: -100 - h.bossIndex };
+  addHardpoint(h: Omit<Hardpoint, 'id' | 'kind' | 'alive' | 'owner' | 'team'> & { team?: number }): Hardpoint {
+    const hp: Hardpoint = { ...h, id: this.nextId++, kind: 'hardpoint', alive: true, owner: -100 - h.bossIndex, team: h.team ?? 1 };
     this.hardpoints.push(hp);
     return hp;
   }
@@ -473,6 +483,7 @@ export class World {
       maxHp: 1,
       alive: true,
       owner: -1,
+      team: -1,
       vy: 0,
       landed: false,
       ttl: 45,
@@ -739,8 +750,8 @@ export class World {
     if (d.hp <= 0) {
       d.alive = false;
       this.events.push({ kind: 'kill', target: d.id, by });
-      const killer = this.tanks[by];
-      if (d.kind === 'tank' && killer && killer.index !== d.owner) {
+      const killer = by >= 0 ? this.tanks[by] : undefined;
+      if (d.kind === 'tank' && killer && killer.index !== d.owner && killer.team !== d.team) {
         killer.kills += 1;
         killer.credits += this.mode.killReward;
       }
