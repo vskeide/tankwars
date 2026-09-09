@@ -213,6 +213,18 @@ export function shieldCapacity(t: Tank): number {
   return Math.max(own, t.shield);
 }
 
+/** Hardest a hull leans on a slope, radians. */
+export const MAX_HULL_TILT = 0.45;
+
+/**
+ * The lean actually used for hull geometry: terrain tilt, clamped. The renderer
+ * draws with this and muzzle() spawns with it, so the shell always leaves the
+ * end of the barrel that is on screen.
+ */
+export function hullRotation(t: Tank): number {
+  return Math.max(-MAX_HULL_TILT, Math.min(MAX_HULL_TILT, t.tilt));
+}
+
 /** Arena-mode barrel rotation speed cap, deg/s. */
 export const AIM_SPEED = 70;
 export const POWER_SPEED = 60;
@@ -405,8 +417,16 @@ export class World {
   muzzle(t: Tank): Vec2 {
     const a = (t.angle * Math.PI) / 180;
     if (t.barrelLen > 0) {
-      const px = t.x + t.pivotDX * t.facing;
-      const py = t.y + t.pivotDY;
+      // The pivot sits above the hull, and it leans with the hull on a slope.
+      // Spawning from the unrotated pivot put the shell above the drawn barrel
+      // by a few pixels on anything but flat ground.
+      const rot = hullRotation(t);
+      const ca = Math.cos(rot);
+      const sa = Math.sin(rot);
+      const lx = t.pivotDX * t.facing;
+      const ly = t.pivotDY;
+      const px = t.x + lx * ca - ly * sa;
+      const py = t.y + lx * sa + ly * ca;
       return { x: px + Math.cos(a) * t.barrelLen, y: py - Math.sin(a) * t.barrelLen };
     }
     const pivotY = t.y - t.halfHeight * 2 - 2;

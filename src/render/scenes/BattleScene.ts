@@ -8,7 +8,7 @@ import { LEVELS } from '../../core/campaign/levels';
 import { BotController } from '../../core/ai';
 import { emptyIntent, type Intent } from '../../core/input';
 import { weaponById } from '../../core/weapons';
-import type { Crate, Hardpoint, Projectile, Tank, World, WorldEvent } from '../../core/world';
+import { hullRotation, type Crate, type Hardpoint, type Projectile, type Tank, type World, type WorldEvent } from '../../core/world';
 import { HUD_H, NATIVE_H, NATIVE_W, SPRITE_SCALE, TERRAIN_H, TERRAIN_W } from '../config';
 import { buildBackdrop } from '../backdrop';
 import { TerrainView } from '../terrainView';
@@ -426,6 +426,7 @@ export class BattleScene extends Phaser.Scene {
       barrel = this.add.image(0, 0, barrelTextureKey(t.cls, t.colour)).setOrigin(2 / (t.cls.barrel + 4), 0.5).setScale(SPRITE_SCALE);
       t.halfWidth = Math.round(info.width * 0.42 * sc);
       t.halfHeight = Math.round(info.height * 0.42 * sc);
+      t.barrelLen = Math.round(t.cls.barrel * SPRITE_SCALE);
     } else {
       const meta = ensureTankTextures(this, t.cls, t.colour);
       const sc = SPRITE_SCALE * settings().tankScale;
@@ -435,6 +436,7 @@ export class BattleScene extends Phaser.Scene {
       barrel = this.add.image(0, 0, barrelTextureKey(t.cls, t.colour)).setOrigin(2 / (meta.barrelLen + 4), 0.5).setScale(sc);
       t.halfWidth = Math.round(t.cls.halfWidth * 2 * settings().tankScale);
       t.halfHeight = Math.round(t.cls.halfHeight * 2 * settings().tankScale);
+      t.barrelLen = Math.round(meta.barrelLen * sc);
     }
     hull.setDepth(30);
     barrel.setDepth(29);
@@ -520,7 +522,7 @@ export class BattleScene extends Phaser.Scene {
     if (v.parts) {
       v.turret!.setVisible(true);
       // Hull follows the slope (clamped); the turret rides with it, the barrel stays absolute.
-      const rot = Math.max(-0.45, Math.min(0.45, t.tilt));
+      const rot = hullRotation(t);
       const ca = Math.cos(rot);
       const sa = Math.sin(rot);
       const x = Math.round(t.x);
@@ -558,10 +560,17 @@ export class BattleScene extends Phaser.Scene {
     }
     const x = Math.round(t.x);
     const y = Math.round(t.y + HUD_H);
-    v.hull.setPosition(x, y).setRotation(t.tilt * 0.6);
-    // Barrel pivot rotates with the hull tilt.
-    const ca = Math.cos(t.tilt * 0.6);
-    const sa = Math.sin(t.tilt * 0.6);
+    // Same lean as the parts hulls (it used to be a softer 0.6x, which meant the
+    // muzzle could not share one piece of geometry with the renderer).
+    const rot = hullRotation(t);
+    v.hull.setPosition(x, y).setRotation(rot);
+    // Barrel pivot rotates with the hull tilt. Publish it to the tank so the
+    // core spawns the shell from the pivot it is drawn at: core re-applies
+    // facing, and pivotX already carries it, hence the round-trip.
+    t.pivotDX = v.pivotX * facing;
+    t.pivotDY = v.pivotY;
+    const ca = Math.cos(rot);
+    const sa = Math.sin(rot);
     const px = x + v.pivotX * ca - v.pivotY * sa;
     const py = y + v.pivotX * sa + v.pivotY * ca;
     v.recoil = Math.max(0, v.recoil - dt * 18 * SPRITE_SCALE);

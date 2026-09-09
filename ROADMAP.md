@@ -179,6 +179,17 @@ Five changes off the back of playing it:
   deterministically 16 px apart and per-stream damage is 14 -> 11. A point-blank hit
   measures 53, against heavy shell 58, thermobaric 74 and nuke 100.
 
+## Done 2026-09-10
+
+- **Fixed: the shell left from above the barrel.** `muzzle()` spawned from the unrotated
+  barrel pivot while the renderer draws that pivot leaning with the hull, so on a slope the
+  spawn point sat 9-21 px off the drawn barrel (measured at tilt 0.15-0.35). The lean now
+  lives in one place, `hullRotation()` in `world.ts`, which both the renderer and `muzzle()`
+  use, and the sprite-hull path publishes its real barrel geometry instead of leaving
+  `muzzle()` on a class-default fallback that ignored the pivot entirely. Error is now 0 at
+  every tilt and facing; `tests/muzzle.test.ts` pins it, including a test that fails if the
+  old unrotated geometry comes back.
+
 ## Suggested order
 
 1 → 3 → 2 (commander, difficulty, score: one coherent campaign feature), then 11, 13, 14 (feel), 26 + 27 (UI kit), 5 + 6 (Hive boss, defences), 31 (deploy so friends can play), 22 (gamepads), 23 last.
