@@ -131,7 +131,7 @@ export const TANK_CLASSES: readonly TankClass[] = [
     salvage: 0.95,
     modes: ['advanced'],
     silhouette: 'hover',
-    perk: { kind: 'shield', capacity: 45, regen: 18 },
+    perk: { kind: 'shield', capacity: 45, regen: 10 },
   },
   {
     id: 'strider',

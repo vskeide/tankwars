@@ -156,7 +156,11 @@ export const WEAPONS: readonly Weapon[] = [
     name: 'Napalm Pod',
     blurb: 'Bursts into burning fluid that runs downhill and keeps burning.',
     behaviour: 'napalm',
-    damage: 14,
+    // Nine streams each apply a full blast, so a direct hit used to stack all
+    // nine on one hull for ~126 damage — more than a nuke, at a third of the
+    // price. Per-stream damage is down and world.ts now spaces the streams out
+    // so a single tank cannot be caught by the whole pod.
+    damage: 11,
     radius: 18,
     ammoPerBuy: 3,
     cost: 1600,

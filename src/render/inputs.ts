@@ -52,6 +52,22 @@ export class InputRouter {
     return this.down.has(code);
   }
 
+  /**
+   * Forget every held key. A scene that slept through a keypress never sees the
+   * keyup, so it wakes believing the key is still down — which is how pressing
+   * SPACE to leave the shop used to instantly confirm the next thing that read
+   * SPACE. Call this when the scene wakes.
+   */
+  clearHeld(): void {
+    this.down.clear();
+    for (const s of this.slots) {
+      s.prevFire = false;
+      s.prevCycle = false;
+      s.prevCycleBack = false;
+      s.prevJump = false;
+    }
+  }
+
   private readSlot(s: SlotState, keys: KeySet, allowAnyKeys: boolean): Intent {
     const it = emptyIntent();
     const kd = (code: string) => this.down.has(code);

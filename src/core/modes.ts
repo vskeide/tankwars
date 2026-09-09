@@ -32,6 +32,11 @@ export interface GameMode {
   startCredits: number;
   /** Credits per kill. */
   killReward: number;
+  /**
+   * Paid to everyone who did not win the round, so a losing player can still
+   * shop. Roughly a third of a kill, which is the winner's usual take.
+   */
+  lossReward: number;
   /** Credits for surviving a round. */
   survivalReward: number;
   /** Aim is remembered between turns rather than reset. */
@@ -59,6 +64,7 @@ export const GAME_MODES: readonly GameMode[] = [
     terrainCollapse: true,
     startCredits: 2500,
     killReward: 1400,
+    lossReward: 470,
     survivalReward: 500,
     retainAim: true,
     aimAssist: 'off',
@@ -81,6 +87,7 @@ export const GAME_MODES: readonly GameMode[] = [
     terrainCollapse: true,
     startCredits: 3200,
     killReward: 1600,
+    lossReward: 530,
     survivalReward: 600,
     retainAim: true,
     aimAssist: 'shortArc',
@@ -103,6 +110,7 @@ export const GAME_MODES: readonly GameMode[] = [
     terrainCollapse: true,
     startCredits: 4000,
     killReward: 1800,
+    lossReward: 600,
     survivalReward: 700,
     retainAim: true,
     // No trajectory preview: Advanced is the expert mode, and the short arc made

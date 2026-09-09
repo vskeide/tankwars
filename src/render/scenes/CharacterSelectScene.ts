@@ -1,12 +1,33 @@
 import Phaser from 'phaser';
 import { PAL, TEAM_COLOURS, hex } from '../../core/palette';
 import { COMMANDERS } from '../../core/campaign/commanders';
-import { tankClassesForMode } from '../../core/tanks';
+import { tankClassById, tankClassesForMode } from '../../core/tanks';
+import { fuelBonusFor, startingAmmoFor } from '../../core/characters';
+import { weaponById } from '../../core/weapons';
 import { NATIVE_H, NATIVE_W } from '../config';
 import type { BattleSetup } from '../setup';
 import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { playMusic } from '../music';
+
+/** One line for a hull's passive, in the same words the shop and HUD use. */
+function describePerk(cls: ReturnType<typeof tankClassById>): string {
+  const p = cls.perk;
+  switch (p.kind) {
+    case 'shield':
+      return `energy shield, ${p.capacity} points, +${p.regen} a turn (soaks before the hull)`;
+    case 'dugIn':
+      return `dug in: ${Math.round(p.reduction * 100)}% less damage on a turn it does not move`;
+    case 'scavenger':
+      return `scavenger: +${p.bonus} credits at the end of a round`;
+    case 'stabilised':
+      return `stabilised barrel: wind affects shots ${Math.round(p.windReduction * 100)}% less`;
+    case 'hover':
+      return 'hover: climbs anything, takes no fall damage';
+    default:
+      return 'none';
+  }
+}
 
 /**
  * Street-Fighter-style roster pick before Arena / Classic / Modern / Advanced
@@ -127,9 +148,24 @@ export class CharacterSelectScene extends Phaser.Scene {
     p.name = name || c.name;
     p.colour = commanderIndex;
     p.skin = '';
-    const legal = tankClassesForMode(this.setup.mode).map((cl) => cl.id);
-    p.tankClass = legal.includes(c.cls) ? c.cls : legal[0] ?? p.tankClass;
+    p.commanderId = c.id;
+    p.tankClass = this.hullFor(commanderIndex).id;
     this.taken.add(commanderIndex);
+  }
+
+  /**
+   * The hull this character actually drives in the chosen mode. Aegis and
+   * Strider are Advanced-only, so in Modern those two fall back to the first
+   * legal class — the card says so rather than quietly substituting one.
+   */
+  private hullFor(commanderIndex: number) {
+    const c = COMMANDERS[commanderIndex];
+    const legal = tankClassesForMode(this.setup.mode);
+    return legal.find((cl) => cl.id === c.cls) ?? legal[0] ?? tankClassById(c.cls);
+  }
+
+  private isSubstituted(commanderIndex: number): boolean {
+    return this.hullFor(commanderIndex).id !== COMMANDERS[commanderIndex].cls;
   }
 
   private advance(): void {
@@ -186,6 +222,12 @@ export class CharacterSelectScene extends Phaser.Scene {
           .setOrigin(0.5, 0),
       );
       const hit = this.add.zone(cx, 205, 230, 230).setInteractive({ useHandCursor: true });
+      hit.on('pointerover', () => {
+        if (this.mode !== 'grid' || this.gridSel === i) return;
+        this.gridSel = i;
+        this.sfx.play('tick');
+        this.refresh();
+      });
       hit.on('pointerdown', () => {
         this.sfx.play('tick');
         this.gridSel = i;
@@ -197,6 +239,8 @@ export class CharacterSelectScene extends Phaser.Scene {
       });
       this.dyn.push(hit);
     });
+
+    if (this.mode === 'grid') this.drawStats();
 
     if (this.mode === 'name') {
       const c = COMMANDERS[this.gridSel];
@@ -222,5 +266,71 @@ export class CharacterSelectScene extends Phaser.Scene {
         .text(NATIVE_W / 2, NATIVE_H - 64, `player ${this.turn + 1} of ${this.humanSlots.length}`, { fontFamily: 'monospace', fontSize: '13px', color: hex(PAL.uiTextDim) })
         .setOrigin(0.5),
     );
+  }
+
+  /**
+   * What the highlighted character actually brings: the hull it drives and the
+   * numbers behind it. Without this the portrait was the only clue, and the
+   * hulls differ by 56 HP and a third of a hitbox.
+   */
+  private drawStats(): void {
+    const c = COMMANDERS[this.gridSel];
+    const cls = this.hullFor(this.gridSel);
+    const fuel = cls.fuel + fuelBonusFor(c.id);
+    const py = 386;
+    const w = 1180;
+    const x = NATIVE_W / 2 - w / 2;
+    const panel = this.add.graphics();
+    panel.fillStyle(PAL.uiInk, 0.92).fillRoundedRect(x, py, w, 170, 6).lineStyle(2, PAL.uiEdge, 0.9).strokeRoundedRect(x, py, w, 170, 6);
+    this.dyn.push(panel);
+
+    const txt = (tx: number, ty: number, str: string, size: string, colour: number, wrap = 0) => {
+      const o = this.add
+        .text(tx, ty, str, {
+          fontFamily: 'monospace',
+          fontSize: size,
+          color: hex(colour),
+          lineSpacing: 6,
+          ...(wrap ? { wordWrap: { width: wrap } } : {}),
+        })
+        .setDepth(1);
+      this.dyn.push(o);
+      return o;
+    };
+
+    txt(x + 26, py + 14, `${c.name.toUpperCase()} \u2014 ${cls.name.toUpperCase()} HULL`, '20px', PAL.uiEdge);
+    txt(x + 26, py + 44, c.blurb, '14px', PAL.uiTextDim, 560);
+
+    // Armour is a damage multiplier, so say which way it goes.
+    const armour = cls.armour < 1 ? `${cls.armour.toFixed(2)} (tougher)` : cls.armour > 1 ? `${cls.armour.toFixed(2)} (softer)` : '1.00';
+    const perk = describePerk(cls);
+    const rows = [
+      `HULL HP    ${String(cls.hp).padStart(4)}`,
+      `ARMOUR     ${armour}`,
+      `FUEL       ${String(fuel).padStart(4)}${fuelBonusFor(c.id) ? `  (${cls.fuel} hull + ${fuelBonusFor(c.id)} ${c.name})` : ''}`,
+      `SHOTS/TURN ${String(cls.shots).padStart(4)}`,
+      `CLIMB      ${String(cls.climb).padStart(4)}\u00b0`,
+      `SIZE       ${cls.halfWidth * 2} \u00d7 ${cls.halfHeight * 2}`,
+    ];
+    txt(x + 640, py + 18, rows.join('\n'), '15px', PAL.uiText);
+    txt(x + 26, py + 98, `PASSIVE  ${perk}`, '15px', PAL.uiText, 580);
+    // The blurbs promise a starting kit; say exactly what it is, and say so when
+    // the mode's armoury does not stock it.
+    const kit = startingAmmoFor(c.id, this.setup.mode);
+    const kitLine = kit.length
+      ? kit.map(([id, n]) => `${weaponById(id).name} ×${n}`).join(', ')
+      : `nothing — ${this.setup.mode} does not stock it`;
+    txt(x + 26, py + 122, `STARTS WITH  ${kitLine}`, '15px', PAL.uiText, 580);
+
+    if (this.isSubstituted(this.gridSel)) {
+      txt(
+        x + 26,
+        py + 142,
+        `${cls.name} instead of ${c.cls}: that hull is Advanced-only, and this is ${this.setup.mode}.`,
+        '13px',
+        PAL.uiDanger,
+        580,
+      );
+    }
   }
 }

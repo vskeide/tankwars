@@ -7,6 +7,7 @@ import { World, type Tank, type CrateKind, AIM_SPEED, POWER_SPEED, DRIVE_SPEED }
 import { Terrain, TERRAIN_STYLES } from '../terrain';
 import { gameMode } from '../modes';
 import { tankClassById } from '../tanks';
+import { hullForPlayer, startingAmmoFor } from '../characters';
 import { weaponById, weaponsForMode } from '../weapons';
 import { Rng } from '../rng';
 import type { Intent } from '../input';
@@ -66,7 +67,7 @@ export class ArenaMatch {
         colour: p.colour,
         isBot: p.isBot,
         difficulty: p.difficulty,
-        cls: tankClassById(p.tankClass),
+        cls: hullForPlayer(tankClassById(p.tankClass), p),
         skin: p.skin,
         credits: 0,
       }),
@@ -99,6 +100,10 @@ export class ArenaMatch {
       t.ammo.clear();
       t.ammo.set('shell', -1);
       t.ammo.set('heavy', 3);
+      // Arena wipes the racks every round, so the character's kit is re-issued.
+      for (const [wid, n] of startingAmmoFor(this.config.players[idx]?.commanderId, 'advanced')) {
+        t.ammo.set(wid, (t.ammo.get(wid) ?? 0) + n);
+      }
       t.selectedWeapon = 'shell';
     });
     this.world.rollWind();

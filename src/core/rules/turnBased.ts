@@ -6,6 +6,7 @@ import { World, type Tank } from '../world';
 import { Terrain, TERRAIN_STYLES } from '../terrain';
 import { gameMode } from '../modes';
 import { tankClassById } from '../tanks';
+import { hullForPlayer, startingAmmoFor } from '../characters';
 import { buyWeapon, hullUpgradeCost, upgradeHull, HULL_UPGRADE_CAP, HULL_UPGRADE_COST, HULL_UPGRADE_STEP } from '../shop';
 import { Rng } from '../rng';
 import { AIM_SPEED, POWER_SPEED } from '../world';
@@ -19,6 +20,12 @@ export interface PlayerSetup {
   difficulty: Difficulty;
   tankClass: string;
   skin?: string;
+  /**
+   * Character picked on the select screen. Outside the campaign only the fuel
+   * bonus is applied — the rest of a commander's perk stays campaign-only — so
+   * the six characters differ in range as well as hull.
+   */
+  commanderId?: string;
 }
 
 export interface TurnBasedConfig {
@@ -115,11 +122,17 @@ export class TurnBasedMatch {
         colour: p.colour,
         isBot: p.isBot,
         difficulty: p.difficulty,
-        cls: tankClassById(mode.tankClasses ? p.tankClass : 'line'),
+        cls: hullForPlayer(tankClassById(mode.tankClasses ? p.tankClass : 'line'), p),
         skin: p.skin,
         credits: mode.startCredits,
       }),
     );
+    // The character kit, once at the start of the match. Ammo carries across
+    // rounds from here, like anything bought in the shop.
+    config.players.forEach((p, i) => {
+      const t = this.world.tanks[i];
+      for (const [wid, n] of startingAmmoFor(p.commanderId, mode.id)) t.ammo.set(wid, (t.ammo.get(wid) ?? 0) + n);
+    });
     for (const t of this.world.tanks) this.stats.set(t.index, { shotsFired: 0, hits: 0, damageDealt: 0, damageTaken: 0 });
     this.startRound();
   }
@@ -315,6 +328,16 @@ export class TurnBasedMatch {
         this.phase = 'resolving';
         this.settleTimer = 0;
       }
+    } else if (this.phase === 'resolving' && this.mode.movement && intent.moveX !== 0) {
+      // The shot is away but the turn is not over: the shooter can still spend
+      // fuel while it flies, which is what makes a long lob a commitment.
+      const t = this.currentTank;
+      this.driveAccum += intent.moveX * 40 * dt;
+      const whole = Math.trunc(this.driveAccum);
+      if (whole !== 0) {
+        w.drive(t, whole, true);
+        this.driveAccum -= whole;
+      }
     }
     w.step(dt);
     this.tally();
@@ -337,6 +360,11 @@ export class TurnBasedMatch {
       if (alive.length === 1) {
         alive[0].roundsWon += 1;
         alive[0].credits += this.mode.survivalReward;
+      }
+      // Losing a round should not mean skipping the armoury entirely: everyone
+      // who did not win takes a consolation. A draw pays all of them.
+      for (const t of this.world.tanks) {
+        if (t.index !== this.lastRoundWinner) t.credits += this.mode.lossReward;
       }
       this.phase = 'roundOver';
       return;

@@ -110,6 +110,8 @@ export class BattleScene extends Phaser.Scene {
   private charge = new Map<number, number>(); // arena: power charge per slot
   /** Candidate drop column during the 'placing' phase, and its marker graphics. */
   private placeX = 0;
+  /** Whose drop the marker is currently showing, so each chooser starts fresh. */
+  private placingFor = -2;
   private placeGfx!: Phaser.GameObjects.Graphics;
   private placeConfirmLatch = false;
   private lastPointerX = -1;
@@ -218,6 +220,16 @@ export class BattleScene extends Phaser.Scene {
     this.input.on('pointerdown', () => {
       this.placeClick = true;
       this.dismissBriefCard();
+    });
+    // Coming back from the shop, the keypress that closed it may never have
+    // reported its keyup here. Start the round with nothing held.
+    this.events.on(Phaser.Scenes.Events.WAKE, () => {
+      this.inputs.clearHeld();
+      this.placeClick = false;
+      this.placeConfirmLatch = true;
+      this.aimHold.clear();
+      this.charge.clear();
+      this.prevHeld.clear();
     });
     this.fx = new Fx(this, HUD_H);
     this.screenFx = new ScreenFx(this);
@@ -765,6 +777,13 @@ export class BattleScene extends Phaser.Scene {
   // ---- input mapping -----------------------------------------------------------
 
   /** Hotseat turn-based: ←→ aim, ↑↓ power, A/D drive, Space fire, Tab weapon. */
+  /** A/D only, for driving while a shot resolves. */
+  private driveOnlyIntent(): Intent {
+    const it = emptyIntent();
+    it.moveX = (this.inputs.isDown('KeyD') ? 1 : 0) - (this.inputs.isDown('KeyA') ? 1 : 0);
+    return it;
+  }
+
   private turnIntent(): Intent {
     const raw = this.inputs.sharedIntent();
     const it = emptyIntent();
@@ -881,6 +900,11 @@ export class BattleScene extends Phaser.Scene {
           if (!t.isBot) this.hud.showBanner(`${t.name.toUpperCase()}`, 700);
         }
         intent = t.isBot ? this.bots.get(t.index)!.turnIntent(this.world, t, dt) : this.turnIntent();
+      } else if (m.phase === 'resolving' && !m.currentTank.isBot) {
+        // The shell is in the air and the shooter can still drive on the fuel
+        // it has left. Drive only: reusing turnIntent() here would let the
+        // hold-to-charge branch move the power bar mid-flight.
+        intent = this.driveOnlyIntent();
       }
       m.update(intent, dt);
     } else if (this.arena) {
@@ -1118,7 +1142,9 @@ export class BattleScene extends Phaser.Scene {
       const fuel = this.world.mode.movement ? ` · fuel ${m.currentTank.fuel}` : '';
       const drive = this.world.mode.movement ? '  A/D drive' : '';
       const fireHint = settings().chargeFire ? 'hold SPACE to charge, release to fire' : '↑↓ power  SPACE fire';
-      return `Round ${m.round}/${this.setup.rounds} · ${this.world.mode.name}${cls}${fuel} · ${m.phase === 'aim' ? `←→ aim  ${fireHint}${drive}  TAB weapon  H help` : 'firing…'}`;
+      // Driving stays live while the shot resolves, so say so rather than just 'firing'.
+      const resolving = this.world.mode.movement ? 'shot away — A/D still drive on your remaining fuel' : 'firing…';
+      return `Round ${m.round}/${this.setup.rounds} · ${this.world.mode.name}${cls}${fuel} · ${m.phase === 'aim' ? `←→ aim  ${fireHint}${drive}  TAB weapon  H help` : resolving}`;
     }
     if (this.campaign) {
       const c = this.campaign;
@@ -1150,6 +1176,13 @@ export class BattleScene extends Phaser.Scene {
     if (!t) return;
     const { min, max } = m.placeBounds();
     if (this.placeX === 0) this.placeX = Math.round((min + max) / 2);
+    // New chooser: swallow anything already held or clicked, so the key that
+    // dropped the previous tank cannot drop this one too.
+    if (m.placingIndex !== this.placingFor) {
+      this.placingFor = m.placingIndex;
+      this.placeClick = false;
+      this.placeConfirmLatch = true;
+    }
 
     // Mouse wins when it has moved; otherwise the arrows nudge, with the same
     // slow-start ramp the aim controls use.

@@ -199,6 +199,20 @@ export interface WorldOptions {
 /** Arena-mode tank drive speed in px/s. */
 /** Real-time drive speed (Arena/Campaign), px/s. Lowered twice on feedback that driving felt too fast. */
 export const DRIVE_SPEED = 110 * UNIT;
+/** What a shield crate tops a tank up to, for hulls with no shield perk of their own. */
+export const SHIELD_CRATE_AMOUNT = 40;
+
+/**
+ * Full charge of a tank's shield, for the HUD bar and any UI that shows it.
+ * Hulls with the shield perk use their own capacity; anyone else can only have
+ * a shield from a crate, so that is the reference. Never below what the tank is
+ * actually carrying, so a bar can't overflow.
+ */
+export function shieldCapacity(t: Tank): number {
+  const own = t.cls.perk.kind === 'shield' ? t.cls.perk.capacity : SHIELD_CRATE_AMOUNT;
+  return Math.max(own, t.shield);
+}
+
 /** Arena-mode barrel rotation speed cap, deg/s. */
 export const AIM_SPEED = 70;
 export const POWER_SPEED = 60;
@@ -827,9 +841,13 @@ export class World {
 
   private napalm(p: Projectile): void {
     const w = p.weapon;
-    // Burning fluid runs downhill from the impact in several streams.
+    // Burning fluid runs downhill from the impact in several streams. The
+    // starting points are spread deterministically rather than jittered around
+    // the impact: on flat ground the fluid has nowhere to run, and clustered
+    // streams all landed on whatever was standing there.
+    const spread = 8 * UNIT;
     for (let i = 0; i < w.submunitions; i++) {
-      let x = p.pos.x + this.rng.range(-14, 14) * UNIT;
+      let x = p.pos.x + (i - (w.submunitions - 1) / 2) * spread + this.rng.range(-2, 2) * UNIT;
       let y = this.terrain.surfaceY(x) - 2;
       for (let k = 0; k < 40 + i * 6; k++) {
         const l = this.terrain.surfaceY(x - 2 * UNIT);
@@ -1009,7 +1027,7 @@ export class World {
         t.hp = Math.min(t.maxHp, t.hp + Math.round(t.maxHp * 0.4));
         break;
       case 'shield':
-        t.shield = Math.max(t.shield, 40);
+        t.shield = Math.max(t.shield, SHIELD_CRATE_AMOUNT);
         break;
       case 'credits':
         t.credits += 800;

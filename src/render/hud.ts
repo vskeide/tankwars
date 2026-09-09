@@ -5,7 +5,7 @@
 import Phaser from 'phaser';
 import { PAL, TEAM_COLOURS, hex } from '../core/palette';
 import { weaponById } from '../core/weapons';
-import type { Tank, World } from '../core/world';
+import { shieldCapacity, type Tank, type World } from '../core/world';
 import { HUD_H, NATIVE_H, NATIVE_W } from './config';
 import { atlasHas } from './atlas';
 
@@ -165,7 +165,9 @@ export class Hud {
         e.bg.fillStyle(0xffc94d, 1).fillRect(x, ny, Math.round(bw * Math.min(1, t.reinforcedHp / 100)), 3);
         ny += 4;
       }
-      if (t.shield > 0) e.bg.fillStyle(0x54c8ff, 1).fillRect(x, ny, Math.round(bw * Math.min(1, t.shield / 60)), 2);
+      // Against the tank's own capacity, so a full Aegis shield reads as full
+      // rather than the 75% a fixed divisor used to give it.
+      if (t.shield > 0) e.bg.fillStyle(0x54c8ff, 1).fillRect(x, ny, Math.round(bw * Math.min(1, t.shield / shieldCapacity(t))), 2);
       e.tag.setPosition(t.x, y - 4).setColor(hex(team.lit)).setText(current && current.index === t.index ? `▼ ${t.name}` : t.name);
     }
   }

@@ -140,6 +140,45 @@ Still open and worth knowing:
 - Arena still has no drop placement (turn-based only) and no replay.
 - The campaign armoury spends the *lead* player's loadout; a co-op second player carries nothing.
 
+## Done 2026-09-09 (tuning pass)
+
+Five changes off the back of playing it:
+
+- The shield line now scales against the tank’s own capacity (`shieldCapacity()` in
+  `world.ts`), so a full Aegis shield reads as full instead of the 75% a fixed divisor gave.
+- The character select screen shows the hull behind each portrait before you commit: HP,
+  armour (with which way the multiplier goes), fuel, shots, climb, hitbox and the passive,
+  and it warns in red when a mode substitutes the hull (Aegis and Strider are Advanced-only,
+  so Modern quietly gave you a Line tank). Mouse hover browses the roster.
+- Aegis shield regen cut from 18 to 10 a turn.
+- Characters now differ in fuel outside the campaign too: `core/characters.ts` applies the
+  commander’s fuel bonus on top of the hull, so Kilo/Aegis runs 130 against Grimm/Bulwark’s
+  55. Nothing else from a commander perk applies outside the campaign.
+- Fuel stays usable after the shot is away: the shooter can keep driving while the shell is
+  in the air, which makes a long lob a commitment. Turn-based only, and drive input only —
+  aim and power are locked once fired.
+
+## Done 2026-09-09 (bug + balance pass)
+
+- **The starting weapons the blurbs promise are actually issued.** `perk.startWeapons` was
+  campaign-only, so "starts with a railgun" was a lie in a normal battle.
+  `startingAmmoFor()` now hands them out in turn-based and Arena, filtered to what the
+  mode's armoury stocks (Classic cannot be given a railgun), and the select screen lists
+  the kit item by item instead of leaving it to the prose.
+- **Losing a round pays a consolation** (`lossReward`, new field on GameMode: 470 / 530 /
+  600 by mode, roughly a third of a kill) so a losing player can still shop. A draw pays
+  everyone.
+- **Fixed: the human was auto-placed after leaving the armoury.** The SPACE that closed the
+  shop was still in the InputRouter's held set when the battle scene woke — the scene slept
+  through its keyup — and the placement phase read it as a confirmation on frame one. Two
+  fixes: `InputRouter.clearHeld()` on scene WAKE, and the drop marker arms its latch for
+  each new chooser, so a key already down can never place a tank.
+- **Napalm nerfed.** All nine streams started within a jittered ±28 px of the impact, so on
+  flat ground (where the fluid has nowhere to run) a direct hit stacked the lot: ~126
+  damage for 1600 credits, more than a 4200-credit nuke. Streams are now spaced
+  deterministically 16 px apart and per-stream damage is 14 -> 11. A point-blank hit
+  measures 53, against heavy shell 58, thermobaric 74 and nuke 100.
+
 ## Suggested order
 
 1 → 3 → 2 (commander, difficulty, score: one coherent campaign feature), then 11, 13, 14 (feel), 26 + 27 (UI kit), 5 + 6 (Hive boss, defences), 31 (deploy so friends can play), 22 (gamepads), 23 last.
