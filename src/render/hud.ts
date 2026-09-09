@@ -153,10 +153,19 @@ export class Hud {
       const bw = 70;
       const x = Math.round(t.x - bw / 2);
       const y = Math.round(t.y + this.worldY - t.halfHeight * 2 - 34);
-      e.bg.fillStyle(PAL.uiInk, 0.85).fillRect(x - 2, y - 2, bw + 4, 9);
+      const hasReinforced = t.reinforcedHp > 0;
+      e.bg.fillStyle(PAL.uiInk, 0.85).fillRect(x - 2, y - 2, bw + 4, hasReinforced ? 13 : 9);
       const f = t.hp / t.maxHp;
       e.bg.fillStyle(f > 0.5 ? PAL.glow : f > 0.25 ? PAL.fireHot : PAL.uiDanger, 1).fillRect(x, y, Math.round(bw * f), 5);
-      if (t.shield > 0) e.bg.fillStyle(0x54c8ff, 1).fillRect(x, y + 6, Math.round(bw * Math.min(1, t.shield / 60)), 2);
+      // Reinforced Hull gets its own amber line below the HP bar, scaled against
+      // the upgrade cap (100) so it reads as "how full is the bonus", not a
+      // fraction of the tank's current (variable) max HP.
+      let ny = y + 6;
+      if (hasReinforced) {
+        e.bg.fillStyle(0xffc94d, 1).fillRect(x, ny, Math.round(bw * Math.min(1, t.reinforcedHp / 100)), 3);
+        ny += 4;
+      }
+      if (t.shield > 0) e.bg.fillStyle(0x54c8ff, 1).fillRect(x, ny, Math.round(bw * Math.min(1, t.shield / 60)), 2);
       e.tag.setPosition(t.x, y - 4).setColor(hex(team.lit)).setText(current && current.index === t.index ? `▼ ${t.name}` : t.name);
     }
   }

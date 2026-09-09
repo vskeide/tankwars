@@ -14,6 +14,21 @@ export interface EnemyDef {
   at: number;
 }
 
+/** A stationary emplacement: id from DEFENCES, placed at a fraction of the width. */
+export interface DefenceDef {
+  kind: 'turret' | 'launcher';
+  at: number;
+}
+
+/** Mines and explosive barrels the level scatters before the fight starts. */
+export interface HazardDef {
+  kind: 'mine' | 'barrel';
+  /** Column as a fraction of the map width. */
+  at: number;
+  /** How many, spread over a short span around `at`. Defaults to 1. */
+  count?: number;
+}
+
 export interface LevelDef {
   id: string;
   name: string;
@@ -21,6 +36,10 @@ export interface LevelDef {
   /** Intro line shown before the fight. */
   brief: string;
   enemies: EnemyDef[];
+  /** Stationary defences, if any. */
+  defences?: DefenceDef[];
+  /** Mines and barrels, if any. */
+  hazards?: HazardDef[];
   /** Boss id, if this is a boss level. */
   boss?: string;
   /** Seconds between crate drops (0 = none). */
@@ -45,14 +64,15 @@ export const LEVELS: readonly LevelDef[] = [
   { id: 'l02', name: 'Two Guns', biome: 'dunes', brief: 'They have started to dig in. Hit the medium first.', enemies: [{ kind: 'light', difficulty: 'rookie', at: 0.6 }, { kind: 'medium', difficulty: 'gunner', at: 0.85 }], crateInterval: 12, reward: 2000, playerAt: 0.12 },
   { id: 'l03', name: 'Salt Wind', biome: 'basin', brief: 'Flat ground, hard wind. The railgun ignores it.', enemies: [{ kind: 'medium', difficulty: 'gunner', at: 0.55 }, { kind: 'missile', difficulty: 'gunner', at: 0.88 }], crateInterval: 10, reward: 2600, playerAt: 0.1 },
   { id: 'b01', name: 'Iron Behemoth', biome: 'mesas', brief: 'The Behemoth guards the pass. Kill the cannons, then the eye.', enemies: [], boss: 'behemoth', crateInterval: 8, reward: 6000, playerAt: 0.14 },
-  { id: 'l05', name: 'Red Mesas', biome: 'mesas', brief: 'High ground everywhere. Rollers find the valleys.', enemies: [{ kind: 'heavy', difficulty: 'gunner', at: 0.5 }, { kind: 'light', difficulty: 'veteran', at: 0.8 }], crateInterval: 10, reward: 3000, playerAt: 0.1 },
-  { id: 'l06', name: 'Burning Ground', biome: 'mesas', brief: 'Flame tanks. Keep your distance and dig.', enemies: [{ kind: 'flame', difficulty: 'veteran', at: 0.45 }, { kind: 'flame', difficulty: 'gunner', at: 0.7 }, { kind: 'missile', difficulty: 'veteran', at: 0.9 }], crateInterval: 9, reward: 3600, playerAt: 0.08 },
-  { id: 'l07', name: 'Iron Crags', biome: 'crags', brief: 'Rock does not fall. Tunnel through it.', enemies: [{ kind: 'heavy', difficulty: 'veteran', at: 0.55 }, { kind: 'heavy', difficulty: 'veteran', at: 0.85 }], crateInterval: 9, reward: 4000, playerAt: 0.1 },
+  { id: 'l05', name: 'Red Mesas', biome: 'mesas', brief: 'High ground everywhere. Rollers find the valleys. Something is dug in on the far mesa.', enemies: [{ kind: 'heavy', difficulty: 'gunner', at: 0.5 }, { kind: 'light', difficulty: 'veteran', at: 0.8 }], defences: [{ kind: 'turret', at: 0.93 }], crateInterval: 10, reward: 3000, playerAt: 0.1 },
+  { id: 'l06', name: 'Burning Ground', biome: 'mesas', brief: 'Flame tanks, and they left the fuel drums where they stood. Shoot the drums.', enemies: [{ kind: 'flame', difficulty: 'veteran', at: 0.45 }, { kind: 'flame', difficulty: 'gunner', at: 0.7 }, { kind: 'missile', difficulty: 'veteran', at: 0.9 }], hazards: [{ kind: 'barrel', at: 0.56, count: 4 }, { kind: 'barrel', at: 0.8, count: 3 }], crateInterval: 9, reward: 3600, playerAt: 0.08 },
+  { id: 'l07', name: 'Iron Crags', biome: 'crags', brief: 'Rock does not fall. Tunnel through it. Mind the ground between the crags.', enemies: [{ kind: 'heavy', difficulty: 'veteran', at: 0.55 }, { kind: 'heavy', difficulty: 'veteran', at: 0.85 }], defences: [{ kind: 'launcher', at: 0.7 }], hazards: [{ kind: 'mine', at: 0.42, count: 3 }], crateInterval: 9, reward: 4000, playerAt: 0.1 },
   { id: 'b02', name: 'Desert Juggernaut', biome: 'crags', brief: 'Quad guns, rockets, and a drill that punches through ridges.', enemies: [], boss: 'juggernaut', crateInterval: 7, reward: 9000, playerAt: 0.12 },
   { id: 'l09', name: 'Ash Spires', biome: 'spires', brief: 'Spires collapse when hit. Bring them down on their heads.', enemies: [{ kind: 'missile', difficulty: 'veteran', at: 0.5 }, { kind: 'medium', difficulty: 'deadeye', at: 0.7 }, { kind: 'light', difficulty: 'veteran', at: 0.9 }], crateInterval: 8, reward: 4500, playerAt: 0.08 },
-  { id: 'l10', name: 'Column', biome: 'spires', brief: 'An armoured column. Crates are your only resupply.', enemies: [{ kind: 'heavy', difficulty: 'deadeye', at: 0.45 }, { kind: 'heavy', difficulty: 'veteran', at: 0.65 }, { kind: 'missile', difficulty: 'deadeye', at: 0.88 }], crateInterval: 7, reward: 5200, playerAt: 0.08 },
-  { id: 'l11', name: 'Last Ridge', biome: 'spires', brief: 'Everything they have left.', enemies: [{ kind: 'flame', difficulty: 'deadeye', at: 0.4 }, { kind: 'heavy', difficulty: 'deadeye', at: 0.6 }, { kind: 'missile', difficulty: 'deadeye', at: 0.78 }, { kind: 'light', difficulty: 'deadeye', at: 0.92 }], crateInterval: 7, reward: 6000, playerAt: 0.06 },
-  { id: 'b03', name: 'Both of Them', biome: 'spires', brief: 'The Behemoth and the Juggernaut, together. Good luck.', enemies: [], boss: 'behemoth+juggernaut', crateInterval: 6, reward: 15000, playerAt: 0.1 },
+  { id: 'l10', name: 'Column', biome: 'spires', brief: 'An armoured column behind mined ground. Crates are your only resupply.', enemies: [{ kind: 'heavy', difficulty: 'deadeye', at: 0.45 }, { kind: 'heavy', difficulty: 'veteran', at: 0.65 }, { kind: 'missile', difficulty: 'deadeye', at: 0.88 }], defences: [{ kind: 'turret', at: 0.75 }], hazards: [{ kind: 'mine', at: 0.33, count: 4 }, { kind: 'barrel', at: 0.58, count: 3 }], crateInterval: 7, reward: 5200, playerAt: 0.08 },
+  { id: 'b03', name: 'Hive Crawler', biome: 'spires', brief: 'It walks on legs and it carries its own air force. Kill the bay before it empties.', enemies: [], boss: 'hive', crateInterval: 7, reward: 11000, playerAt: 0.1 },
+  { id: 'l11', name: 'Last Ridge', biome: 'spires', brief: 'Everything they have left, behind everything they could bury.', enemies: [{ kind: 'flame', difficulty: 'deadeye', at: 0.4 }, { kind: 'heavy', difficulty: 'deadeye', at: 0.6 }, { kind: 'missile', difficulty: 'deadeye', at: 0.78 }, { kind: 'light', difficulty: 'deadeye', at: 0.92 }], defences: [{ kind: 'launcher', at: 0.86 }], hazards: [{ kind: 'mine', at: 0.3, count: 5 }, { kind: 'barrel', at: 0.68, count: 4 }], crateInterval: 7, reward: 6000, playerAt: 0.06 },
+  { id: 'b04', name: 'Both of Them', biome: 'spires', brief: 'The Behemoth and the Juggernaut, together. Good luck.', enemies: [], boss: 'behemoth+juggernaut', crateInterval: 6, reward: 15000, playerAt: 0.1 },
 ];
 
 export function levelById(id: string): LevelDef {

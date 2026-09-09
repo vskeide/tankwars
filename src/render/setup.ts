@@ -1,4 +1,4 @@
-import type { PlayerSetup } from '../core/rules/turnBased';
+import type { PlayerSetup, TurnBasedMatch } from '../core/rules/turnBased';
 import type { GameModeId } from '../core/types';
 
 /** What the menu hands to the battle scene. */
@@ -12,6 +12,13 @@ export interface BattleSetup {
   players: PlayerSetup[];
   rounds: number;
   terrainStyle: string;
+  /** Turn-based only: 'drop' = players choose where their tank lands each round. */
+  placement?: 'drop' | 'random';
+  /**
+   * A match restored from a save game, handed straight to the battle scene
+   * instead of building a new one from this setup.
+   */
+  resume?: TurnBasedMatch;
   seed: number;
 }
 
@@ -24,5 +31,6 @@ export const DEFAULT_SETUP: BattleSetup = {
   ],
   rounds: 3,
   terrainStyle: 'random',
+  placement: 'drop',
   seed: Date.now() & 0x7fffffff,
 };

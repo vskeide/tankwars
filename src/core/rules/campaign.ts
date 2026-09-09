@@ -15,7 +15,7 @@ import { solveFrom } from '../ai';
 import type { Intent } from '../input';
 import type { PlayerSetup } from './turnBased';
 import { LEVELS, ENEMY_CLASS, levelById, type LevelDef } from '../campaign/levels';
-import { bossById, type BossDef, type HardpointDef } from '../campaign/bosses';
+import { bossById, defenceById, type BossDef, type HardpointDef } from '../campaign/bosses';
 import { BOSS_MOUNTS } from '../campaign/mounts';
 import { commanderById, type Commander } from '../campaign/commanders';
 import { difficultyById, shiftTier, type CampaignDifficulty } from '../campaign/difficulty';
@@ -30,6 +30,12 @@ export interface CampaignConfig {
   commanderId?: string;
   /** Difficulty tier id; undefined = soldier. */
   difficultyId?: string;
+  /**
+   * What the players carry in from the campaign armoury: unspent credits, ammo
+   * left over or bought between missions, and Reinforced Hull. Undefined on the
+   * first mission of a run.
+   */
+  loadout?: { credits: number; ammo: Record<string, number>; reinforcedHp: number };
 }
 
 /** Per-level tallies for the campaign score. */
@@ -56,6 +62,20 @@ export interface BossState {
   facing: 1 | -1;
 }
 
+/**
+ * A Hive drone: a small hardpoint that flies at the nearest player and goes off
+ * on contact. It is deliberately NOT in the boss's hardpoint map, so shooting
+ * drones does not count towards the boss's HP fraction or its phase changes.
+ */
+export interface DroneState {
+  hp: Hardpoint;
+  bossIndex: number;
+  vx: number;
+  vy: number;
+  /** Seconds left before it gives up and self-destructs. */
+  life: number;
+}
+
 function cooldownFor(weaponId: string): number {
   const w = weaponById(weaponId);
   if (w.id === 'shell') return 1.1;
@@ -70,6 +90,11 @@ export class CampaignLevel {
   readonly config: CampaignConfig;
   readonly rng: Rng;
   readonly bosses: BossState[] = [];
+  /** Emplacements share the boss machinery; kept apart so the UI can tell them apart. */
+  readonly defences: BossState[] = [];
+  drones: DroneState[] = [];
+  /** Taunt cards for the renderer: {name, portrait, line} pushed on phase changes. */
+  readonly taunts: { name: string; portrait: string; line: string }[] = [];
   /** Indices of player-controlled tanks. */
   readonly playerIndices: number[] = [];
   /** Indices of enemy bot tanks. */
@@ -81,7 +106,8 @@ export class CampaignLevel {
   private reloadMult = 1;
 
   phase: CampaignPhase = 'brief';
-  briefTimer = 3.5;
+  /** The intro card is dismissed by the player; this is only a long backstop. */
+  briefTimer = 20;
   /** Banner requests for the renderer (phase changes). */
   banners: string[] = [];
   private crateTimer = 0;
@@ -124,13 +150,25 @@ export class CampaignLevel {
     this.world.setTerrain(Terrain.generate(this.config.width, this.config.height, style, this.rng.int(1, 2 ** 31 - 1)));
     const w = this.config.width;
 
+    const carried = this.config.loadout;
     this.playerIndices.forEach((idx, k) => {
       const t = this.world.tanks[idx];
+      // Reinforced Hull is bought in the armoury and survives the mission, so it
+      // has to be on the tank before the respawn heals it to full.
+      t.reinforcedHp = carried?.reinforcedHp ?? 0;
       this.world.respawnTank(t, Math.round(w * this.level.playerAt) + k * 40 * UNIT);
       t.ammo.clear();
       t.ammo.set('shell', -1);
       t.ammo.set('heavy', 2);
       for (const [wid, n] of this.commander.perk.startWeapons) t.ammo.set(wid, (t.ammo.get(wid) ?? 0) + n);
+      if (carried) {
+        for (const [wid, n] of Object.entries(carried.ammo)) {
+          if (wid === 'shell') continue; // always unlimited
+          const have = t.ammo.get(wid) ?? 0;
+          t.ammo.set(wid, have < 0 ? -1 : have + n);
+        }
+        t.credits = carried.credits;
+      }
       t.selectedWeapon = 'shell';
       t.facing = 1;
       t.angle = 60;
@@ -157,14 +195,28 @@ export class CampaignLevel {
         this.spawnBoss(bossById(id), x);
       });
     }
+    for (const d of this.level.defences ?? []) {
+      const state = this.spawnBoss(defenceById(d.kind), Math.round(w * d.at));
+      this.defences.push(state);
+    }
+    // Mines and barrels last, so they sit on the terrain the bosses flattened.
+    for (const h of this.level.hazards ?? []) {
+      const count = h.count ?? 1;
+      const spread = 26 * UNIT;
+      for (let k = 0; k < count; k++) {
+        const centre = w * h.at + (k - (count - 1) / 2) * spread;
+        const x = Math.round(Math.max(20, Math.min(w - 20, centre + this.rng.range(-8, 8))));
+        this.world.spawnHazard(x, h.kind);
+      }
+    }
     this.world.rollWind();
     this.phase = 'brief';
-    this.briefTimer = 3.5;
+    this.briefTimer = 20;
     this.crateTimer = this.crateInterval();
     this.banners.push(this.level.name.toUpperCase());
   }
 
-  private spawnBoss(def: BossDef, x: number): void {
+  private spawnBoss(def: BossDef, x: number): BossState {
     // Flatten a wide shelf so the boss sits level.
     const surf = this.world.terrain.surfaceY(x);
     const bw = def.width * UNIT;
@@ -207,6 +259,7 @@ export class CampaignLevel {
     }
     this.bosses.push(state);
     this.advanceBossPhase(state);
+    return state;
   }
 
   private bossHpFraction(b: BossState): number {
@@ -224,7 +277,8 @@ export class CampaignLevel {
         b.active.add(id);
         b.timers.set(id, 1.5 + this.rng.range(0, 2));
       }
-      this.banners.push(ph.banner);
+      if (ph.banner) this.banners.push(ph.banner);
+      if (ph.taunt && !b.def.quiet) this.taunts.push({ name: b.def.name, portrait: b.def.portrait ?? '', line: ph.taunt });
     }
   }
 
@@ -272,6 +326,7 @@ export class CampaignLevel {
     });
 
     for (const b of this.bosses) this.updateBoss(b, dt);
+    this.updateDrones(dt);
 
     if (this.level.crateInterval > 0) {
       this.crateTimer -= dt;
@@ -325,6 +380,28 @@ export class CampaignLevel {
         else if (players.has(e.by) && e.amount > 0) this.stats.hits += 1;
       } else if (e.kind === 'cratePickup' && players.has(e.tank)) this.stats.crates += 1;
     }
+  }
+
+  /** Skip the intro card and start the fight. */
+  beginFight(): void {
+    if (this.phase !== 'brief') return;
+    this.briefTimer = 0;
+    this.phase = 'live';
+    this.banners.push('ENGAGE');
+  }
+
+  /**
+   * What the level puts in front of the player, for the intro card: enemy
+   * armour by kind, emplacements, hazards and the boss.
+   */
+  roster(): { label: string; count: number }[] {
+    const out = new Map<string, number>();
+    const bump = (label: string, n = 1) => out.set(label, (out.get(label) ?? 0) + n);
+    for (const e of this.level.enemies) bump(`${e.kind} armour`);
+    for (const d of this.level.defences ?? []) bump(d.kind === 'turret' ? 'gun emplacement' : 'missile emplacement');
+    for (const h of this.level.hazards ?? []) bump(h.kind === 'mine' ? 'mines' : 'fuel drums', h.count ?? 1);
+    for (const b of this.bosses) if (!b.def.quiet) bump(b.def.name);
+    return [...out.entries()].map(([label, count]) => ({ label, count }));
   }
 
   get overElapsed(): number {
@@ -393,7 +470,70 @@ export class CampaignLevel {
         this.world.spawnCrate(Math.round(this.rng.range(target.x - 60 * UNIT, target.x + 60 * UNIT)), 'ammo', 'heavy');
         break;
       }
+      case 'drone': {
+        // Cap the swarm so a long fight cannot fill the screen with drones.
+        const live = this.drones.filter((d) => d.hp.alive).length;
+        for (let i = 0; i < at.count && live + i < 6; i++) {
+          const hpv = Math.round(at.hp * this.difficulty.bossHpMult);
+          const drone = this.world.addHardpoint({
+            bossIndex: b.index,
+            name: 'Drone',
+            dx: 0,
+            dy: 0,
+            core: false,
+            x: from.x + this.rng.range(-10, 10),
+            y: from.y - 8 * UNIT - i * 10 * UNIT,
+            halfWidth: 6 * UNIT,
+            halfHeight: 5 * UNIT,
+            hp: hpv,
+            maxHp: hpv,
+          });
+          this.drones.push({ hp: drone, bossIndex: b.index, vx: 0, vy: 0, life: 22 });
+        }
+        break;
+      }
     }
+  }
+
+  /**
+   * Drones steer towards the nearest player at a capped speed and detonate on
+   * contact, on running out of life, or when shot down.
+   */
+  private updateDrones(dt: number): void {
+    const SPEED = 62 * UNIT;
+    for (const d of this.drones) {
+      const h = d.hp;
+      if (!h.alive) continue;
+      d.life -= dt;
+      const target = this.nearestPlayer(h.x);
+      if (!target || d.life <= 0) {
+        this.blowDrone(d);
+        continue;
+      }
+      const tx = target.x;
+      const ty = target.y - target.halfHeight;
+      const dist = Math.hypot(tx - h.x, ty - h.y) || 1;
+      // Steer rather than snap, so they arc in and can be led away.
+      d.vx += ((tx - h.x) / dist * SPEED - d.vx) * Math.min(1, dt * 2.4);
+      d.vy += ((ty - h.y) / dist * SPEED - d.vy) * Math.min(1, dt * 2.4);
+      h.x += d.vx * dt;
+      h.y += d.vy * dt;
+      // Contact with the target, or with the ground it is skimming.
+      const hitTarget = Math.abs(tx - h.x) <= target.halfWidth + h.halfWidth && Math.abs(ty - h.y) <= target.halfHeight + h.halfHeight;
+      const hitGround = this.world.terrain.isSolid(h.x, h.y + h.halfHeight);
+      if (hitTarget || hitGround) this.blowDrone(d);
+    }
+    this.drones = this.drones.filter((d) => d.hp.alive);
+    // Shot-down drones leave a small blast too, so the hardpoint list stays clean.
+    this.world.hardpoints = this.world.hardpoints.filter((h) => h.alive || h.name !== 'Drone');
+  }
+
+  private blowDrone(d: DroneState): void {
+    const h = d.hp;
+    if (!h.alive) return;
+    h.alive = false;
+    h.hp = 0;
+    this.world.fireFrom({ x: h.x, y: h.y }, { x: 0, y: 40 * UNIT }, weaponById('shell'), -100 - d.bossIndex);
   }
 
   private nearestPlayer(x: number): Tank | null {

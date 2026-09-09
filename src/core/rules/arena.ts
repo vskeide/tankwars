@@ -10,7 +10,7 @@ import { tankClassById } from '../tanks';
 import { weaponById, weaponsForMode } from '../weapons';
 import { Rng } from '../rng';
 import type { Intent } from '../input';
-import type { PlayerSetup } from './turnBased';
+import { tallyMatchStats, type MatchStats, type PlayerSetup } from './turnBased';
 
 export interface ArenaConfig {
   players: PlayerSetup[];
@@ -40,6 +40,7 @@ export class ArenaMatch {
   readonly world: World;
   readonly config: ArenaConfig;
   readonly rng: Rng;
+  readonly stats = new Map<number, MatchStats>();
 
   round = 0;
   phase: ArenaPhase = 'countdown';
@@ -70,6 +71,7 @@ export class ArenaMatch {
         credits: 0,
       }),
     );
+    for (const t of this.world.tanks) this.stats.set(t.index, { shotsFired: 0, hits: 0, damageDealt: 0, damageTaken: 0 });
     this.driveAccum = config.players.map(() => 0);
     this.startRound();
   }
@@ -153,6 +155,7 @@ export class ArenaMatch {
     }
 
     w.step(dt);
+    tallyMatchStats(w, this.stats);
 
     if (this.phase === 'live') {
       const alive = w.aliveTanks();

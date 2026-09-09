@@ -267,12 +267,11 @@ export function botShop(
   bot: Tank,
   modeId: string,
   buy: (t: Tank, id: string) => boolean,
-  repairCost: (t: Tank) => number,
-  repair: (t: Tank) => boolean,
+  hullUpgradeCost: (t: Tank) => number,
+  upgradeHull: (t: Tank) => boolean,
 ): void {
   const profile = PROFILES[bot.difficulty];
   if (!profile.shops) return;
-  if (bot.hp < bot.maxHp * 0.7 && bot.credits >= repairCost(bot) + 800) repair(bot);
   const wishlist = ['heavy', 'roller', 'cluster', 'sabot', 'digger', 'railgun', 'mirv', 'napalm', 'airburst', 'nuke'];
   for (const id of wishlist) {
     const w = weaponById(id);
@@ -281,6 +280,10 @@ export function botShop(
     if (have >= w.ammoPerBuy) continue;
     if (bot.credits - w.cost < 600) continue;
     buy(bot, id);
+  }
+  // Dump whatever weapons couldn't use into permanent hull HP.
+  while (bot.credits >= hullUpgradeCost(bot) + 300) {
+    if (!upgradeHull(bot)) break;
   }
 }
 

@@ -9,13 +9,16 @@
     "build": "tsc --noEmit && vite build && node tools/prune-dist.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "assets": "py -3 tools/extract_sheets.py && py -3 tools/pack_atlas.py && py -3 tools/boss_mounts.py"
+    "assets": "py -3 tools/extract_sheets.py && py -3 tools/pack_atlas.py && py -3 tools/boss_mounts.py",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "phaser": "^3.90.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^5.0.0"
   }
 }

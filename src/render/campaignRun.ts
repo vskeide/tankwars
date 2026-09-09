@@ -7,6 +7,20 @@ import { emptyRun, type HighScore, type RunStats } from '../core/campaign/score'
 const RUN_KEY = 'tankwars.campaign.run';
 const LEVEL_KEY = 'tankwars.campaign.level';
 const SCORES_KEY = 'tankwars.campaign.scores';
+const LOADOUT_KEY = 'tankwars.campaign.loadout';
+
+/**
+ * What the player carries between missions: credits earned but not yet spent,
+ * ammo left in the racks plus anything bought, and the Reinforced Hull bought
+ * in the armoury. Ammo is a plain object because it has to survive JSON.
+ */
+export interface Loadout {
+  credits: number;
+  ammo: Record<string, number>;
+  reinforcedHp: number;
+}
+
+const EMPTY_LOADOUT: Loadout = { credits: 0, ammo: {}, reinforcedHp: 0 };
 
 function read<T>(key: string): T | null {
   try {
@@ -35,6 +49,7 @@ export function saveRun(r: RunStats): void {
 export function startRun(commander: string, difficulty: string): RunStats {
   const r = emptyRun(commander, difficulty);
   saveRun(r);
+  clearLoadout();
   try {
     localStorage.setItem(LEVEL_KEY, 'l01');
   } catch { /* private mode */ }
@@ -42,6 +57,7 @@ export function startRun(commander: string, difficulty: string): RunStats {
 }
 
 export function clearRun(): void {
+  clearLoadout();
   try {
     localStorage.removeItem(RUN_KEY);
     localStorage.setItem(LEVEL_KEY, 'l01');
@@ -59,6 +75,22 @@ export function savedLevelId(): string {
 export function setSavedLevel(id: string): void {
   try {
     localStorage.setItem(LEVEL_KEY, id);
+  } catch { /* private mode */ }
+}
+
+export function loadLoadout(): Loadout {
+  const l = read<Loadout>(LOADOUT_KEY);
+  if (!l) return { ...EMPTY_LOADOUT, ammo: {} };
+  return { credits: l.credits ?? 0, ammo: l.ammo ?? {}, reinforcedHp: l.reinforcedHp ?? 0 };
+}
+
+export function saveLoadout(l: Loadout): void {
+  write(LOADOUT_KEY, l);
+}
+
+export function clearLoadout(): void {
+  try {
+    localStorage.removeItem(LOADOUT_KEY);
   } catch { /* private mode */ }
 }
 

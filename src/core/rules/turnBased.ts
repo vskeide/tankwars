@@ -6,7 +6,7 @@ import { World, type Tank } from '../world';
 import { Terrain, TERRAIN_STYLES } from '../terrain';
 import { gameMode } from '../modes';
 import { tankClassById } from '../tanks';
-import { weaponById } from '../weapons';
+import { buyWeapon, hullUpgradeCost, upgradeHull, HULL_UPGRADE_CAP, HULL_UPGRADE_COST, HULL_UPGRADE_STEP } from '../shop';
 import { Rng } from '../rng';
 import { AIM_SPEED, POWER_SPEED } from '../world';
 import type { Intent } from '../input';
@@ -29,18 +29,73 @@ export interface TurnBasedConfig {
   width: number;
   height: number;
   terrainStyle: string; // id or 'random'
+  /** 'drop' lets the players choose where their tank lands each round. */
+  placement: 'drop' | 'random';
 }
 
-export type Phase = 'aim' | 'resolving' | 'roundOver' | 'shop' | 'matchOver';
+export type Phase = 'placing' | 'aim' | 'resolving' | 'roundOver' | 'shop' | 'matchOver';
+
+/** Closest two tanks may be dropped, and the dead margin at each map edge, in px. */
+const PLACE_MIN_GAP = 110;
+const PLACE_EDGE = 70;
+
+/** Per-tank tallies across the whole match, for the end-of-match results screen. */
+export interface MatchStats {
+  shotsFired: number;
+  hits: number;
+  damageDealt: number;
+  damageTaken: number;
+}
+
+/** Shared by TurnBasedMatch and ArenaMatch: read the world's pending damage/launch events
+ * into a per-tank-index MatchStats map. Does not clear events — the renderer drains them. */
+export function tallyMatchStats(world: World, stats: Map<number, MatchStats>): void {
+  for (const e of world.peekEvents()) {
+    if (e.kind === 'launch') {
+      const s = stats.get(e.shooter);
+      if (s) s.shotsFired += 1;
+    } else if (e.kind === 'damage' && e.amount > 0) {
+      const total = e.amount + e.shieldAbsorbed;
+      const byStats = e.by >= 0 ? stats.get(e.by) : undefined;
+      if (byStats) {
+        byStats.hits += 1;
+        byStats.damageDealt += total;
+      }
+      const target = world.tanks.find((t) => t.id === e.target);
+      if (target) {
+        const targetStats = stats.get(target.index);
+        if (targetStats) targetStats.damageTaken += total;
+      }
+    }
+  }
+}
+
+/** Match-level state a save game round-trips; the world is saved separately. */
+export interface TurnBasedSnapshot {
+  round: number;
+  turn: number;
+  current: number;
+  shotsLeftThisTurn: number;
+  lastRoundWinner: number;
+  order: number[];
+  rngState: number;
+  stats: [number, MatchStats][];
+}
 
 export class TurnBasedMatch {
   readonly world: World;
   readonly config: TurnBasedConfig;
   readonly rng: Rng;
+  /** Keyed by tank index. Populated in the constructor, one entry per tank. */
+  readonly stats = new Map<number, MatchStats>();
 
   round = 0;
   turn = 0;
   current = 0;
+  /** Tank indices in this round's play order — also the order they choose positions in. */
+  order: number[] = [];
+  private placeQueue: number[] = [];
+  private slots = 0;
   phase: Phase = 'aim';
   shotsLeftThisTurn = 1;
   lastRoundWinner = -1;
@@ -65,6 +120,7 @@ export class TurnBasedMatch {
         credits: mode.startCredits,
       }),
     );
+    for (const t of this.world.tanks) this.stats.set(t.index, { shotsFired: 0, hits: 0, damageDealt: 0, damageTaken: 0 });
     this.startRound();
   }
 
@@ -89,19 +145,149 @@ export class TurnBasedMatch {
       const j = this.rng.int(0, i);
       [order[i], order[j]] = [order[j], order[i]];
     }
+    if (this.round > 1) {
+      // The tank with the worst standing tees off first — mirrors the original
+      // Tank Wars rule that last round's loser goes first. The shuffle above
+      // already randomised order, so a stable sort only breaks ties among tanks
+      // level on rounds/kills.
+      order.sort((a, b) => {
+        const ta = this.world.tanks[a];
+        const tb = this.world.tanks[b];
+        return ta.roundsWon - tb.roundsWon || ta.kills - tb.kills;
+      });
+    }
+    this.order = order;
+    this.slots = n;
+    for (const i of order) this.world.resetTankForRound(this.world.tanks[i]);
+    this.world.rollWind();
+    this.lastRoundWinner = -1;
+
+    // Drop placement only makes sense with someone at the keyboard; an all-bot
+    // match places itself and goes straight to aiming.
+    if (this.config.placement === 'drop' && this.world.tanks.some((t) => !t.isBot)) {
+      this.placeQueue = [...order];
+      for (const i of order) this.world.unplaceTank(this.world.tanks[i]);
+      this.phase = 'placing';
+      this.advancePlacement();
+      return;
+    }
+    order.forEach((tankIndex, slot) => this.world.placeTankAt(this.world.tanks[tankIndex], this.autoPlaceX(slot)));
+    this.beginAiming();
+  }
+
+  // ---- save games --------------------------------------------------------------
+
+  snapshotState(): TurnBasedSnapshot {
+    return {
+      round: this.round,
+      turn: this.turn,
+      current: this.current,
+      shotsLeftThisTurn: this.shotsLeftThisTurn,
+      lastRoundWinner: this.lastRoundWinner,
+      order: [...this.order],
+      rngState: this.rng.seedState,
+      stats: [...this.stats.entries()].map(([i, v]) => [i, { ...v }] as [number, MatchStats]),
+    };
+  }
+
+  /**
+   * Overwrite the match state after the constructor has built a fresh round.
+   * Placement and firing are both finished by definition — only the 'aim' phase
+   * is saveable — so the queues are cleared rather than restored.
+   */
+  restoreState(s: TurnBasedSnapshot): void {
+    this.round = s.round;
+    this.turn = s.turn;
+    this.current = s.current;
+    this.shotsLeftThisTurn = s.shotsLeftThisTurn;
+    this.lastRoundWinner = s.lastRoundWinner;
+    this.order = [...s.order];
+    this.slots = this.world.tanks.length;
+    this.rng.seedState = s.rngState;
+    this.stats.clear();
+    for (const [i, v] of s.stats) this.stats.set(i, { ...v });
+    this.placeQueue = [];
+    this.settleTimer = 0;
+    this.driveAccum = 0;
+    this.phase = 'aim';
+    this.matchWinner = -1;
+  }
+
+  // ---- placement ---------------------------------------------------------------
+
+  /** Tank index currently choosing a position, or -1 when nobody is. */
+  get placingIndex(): number {
+    return this.phase === 'placing' ? this.placeQueue[0] ?? -1 : -1;
+  }
+
+  get placingTank(): Tank | null {
+    const i = this.placingIndex;
+    return i >= 0 ? this.world.tanks[i] : null;
+  }
+
+  /** Legal x range for a drop, before the gap-to-neighbours rule. */
+  placeBounds(): { min: number; max: number } {
+    return { min: PLACE_EDGE, max: this.config.width - PLACE_EDGE };
+  }
+
+  /** A drop is legal if it is in bounds and not crowding a tank already down. */
+  canPlaceAt(x: number): boolean {
+    const { min, max } = this.placeBounds();
+    if (x < min || x > max) return false;
+    return this.world.tanks.every((t) => !t.placed || Math.abs(t.x - x) >= PLACE_MIN_GAP);
+  }
+
+  /** Commit the current chooser's drop. Returns false if the spot is not legal. */
+  placeAt(x: number): boolean {
+    if (this.phase !== 'placing') return false;
+    const idx = this.placeQueue[0];
+    if (idx === undefined) return false;
+    const rounded = Math.round(x);
+    if (!this.canPlaceAt(rounded)) return false;
+    this.world.placeTankAt(this.world.tanks[idx], rounded);
+    this.placeQueue.shift();
+    this.advancePlacement();
+    return true;
+  }
+
+  /** Drop every bot at the head of the queue; stop at a human or when done. */
+  private advancePlacement(): void {
+    while (this.placeQueue.length > 0) {
+      const idx = this.placeQueue[0];
+      const t = this.world.tanks[idx];
+      if (!t.isBot) return;
+      this.world.placeTankAt(t, this.autoPlaceX(this.order.indexOf(idx)));
+      this.placeQueue.shift();
+    }
+    this.beginAiming();
+  }
+
+  /**
+   * Spread slot `slot` of `slots` across the map with a little jitter, then walk
+   * outwards until the spot clears everyone already down.
+   */
+  private autoPlaceX(slot: number): number {
     const margin = 180;
     const span = this.config.width - margin * 2;
-    order.forEach((tankIndex, slot) => {
-      const centre = margin + (span * (slot + 0.5)) / n;
-      const x = Math.round(centre + this.rng.range(-span / n / 4, span / n / 4));
-      this.world.respawnTank(this.world.tanks[tankIndex], x);
-    });
+    const centre = margin + (span * (slot + 0.5)) / Math.max(1, this.slots);
+    const wanted = Math.round(centre + this.rng.range(-span / this.slots / 4, span / this.slots / 4));
+    if (this.canPlaceAt(wanted)) return wanted;
+    const { min, max } = this.placeBounds();
+    for (let step = 8; step < this.config.width; step += 8) {
+      if (this.canPlaceAt(wanted - step)) return wanted - step;
+      if (this.canPlaceAt(wanted + step)) return wanted + step;
+    }
+    return Math.max(min, Math.min(max, wanted));
+  }
 
-    this.world.rollWind();
-    this.current = order[0];
+  /**
+   * Placement done: whoever chose first shoots first, which is also the
+   * worst-standing-first order startRound() built.
+   */
+  private beginAiming(): void {
+    this.current = this.order[0];
     this.shotsLeftThisTurn = this.currentTank.cls.shots;
     this.phase = 'aim';
-    this.lastRoundWinner = -1;
   }
 
   /**
@@ -116,8 +302,9 @@ export class TurnBasedMatch {
       if (intent.powerDelta !== 0) w.setPower(t, t.power + intent.powerDelta * POWER_SPEED * dt);
       if (intent.cycleWeapon !== 0) w.cycleWeapon(t, intent.cycleWeapon);
       if (intent.moveX !== 0 && this.mode.movement) {
-        // Accumulate fractional pixels so slow drives still move.
-        this.driveAccum += intent.moveX * 60 * dt;
+        // Accumulate fractional pixels so slow drives still move. Lowered from
+        // 60 on feedback that Advanced-mode driving was still too fast.
+        this.driveAccum += intent.moveX * 40 * dt;
         const whole = Math.trunc(this.driveAccum);
         if (whole !== 0) {
           w.drive(t, whole, true);
@@ -130,6 +317,7 @@ export class TurnBasedMatch {
       }
     }
     w.step(dt);
+    this.tally();
 
     if (this.phase === 'resolving' && !w.busy) {
       this.settleTimer += dt;
@@ -137,6 +325,10 @@ export class TurnBasedMatch {
     }
   }
   private driveAccum = 0;
+
+  private tally(): void {
+    tallyMatchStats(this.world, this.stats);
+  }
 
   private afterShot(): void {
     const alive = this.world.aliveTanks();
@@ -199,24 +391,20 @@ export class TurnBasedMatch {
   // ---- shop ------------------------------------------------------------------
 
   buy(t: Tank, weaponId: string): boolean {
-    const w = weaponById(weaponId);
-    if (!w.modes.includes(this.mode.id) || w.cost === 0 || t.credits < w.cost) return false;
-    t.credits -= w.cost;
-    const have = t.ammo.get(w.id) ?? 0;
-    t.ammo.set(w.id, have < 0 ? -1 : have + w.ammoPerBuy);
-    return true;
+    return buyWeapon(t, this.mode.id, weaponId);
   }
 
-  repairCost(t: Tank): number {
-    return Math.ceil((t.maxHp - t.hp) * 8);
+  /** Re-exported so the shop UI can read them without importing the rules module. */
+  static readonly HULL_UPGRADE_STEP = HULL_UPGRADE_STEP;
+  static readonly HULL_UPGRADE_COST = HULL_UPGRADE_COST;
+  static readonly HULL_UPGRADE_CAP = HULL_UPGRADE_CAP;
+
+  hullUpgradeCost(t: Tank): number {
+    return hullUpgradeCost(t);
   }
 
-  repair(t: Tank): boolean {
-    const cost = this.repairCost(t);
-    if (cost <= 0 || t.credits < cost) return false;
-    t.credits -= cost;
-    t.hp = t.maxHp;
-    return true;
+  upgradeHull(t: Tank): boolean {
+    return upgradeHull(t);
   }
 
   finishShop(): void {

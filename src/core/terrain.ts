@@ -11,11 +11,12 @@ export const MAT_BEDROCK_DARK = 5;
 export const MAT_SCORCH = 6;
 
 export const TERRAIN_STYLES: readonly TerrainStyle[] = [
-  { id: 'dunes', name: 'Rolling Dunes', roughness: 0.35, baseline: 0.68, crumbles: true },
-  { id: 'mesas', name: 'Broken Mesas', roughness: 0.85, baseline: 0.6, crumbles: false },
-  { id: 'crags', name: 'Iron Crags', roughness: 1.0, baseline: 0.55, crumbles: false },
+  { id: 'dunes', name: 'Rolling Dunes', roughness: 0.36, baseline: 0.68, crumbles: true },
+  { id: 'mesas', name: 'Broken Mesas', roughness: 0.8, baseline: 0.58, crumbles: false },
+  { id: 'crags', name: 'Iron Crags', roughness: 0.92, baseline: 0.52, crumbles: false },
   { id: 'basin', name: 'Salt Basin', roughness: 0.15, baseline: 0.78, crumbles: true },
-  { id: 'spires', name: 'Ash Spires', roughness: 0.7, baseline: 0.5, crumbles: true },
+  { id: 'spires', name: 'Ash Spires', roughness: 0.72, baseline: 0.48, crumbles: true },
+  { id: 'canyon', name: 'Choke Canyon', roughness: 0.88, baseline: 0.42, crumbles: false },
 ];
 
 /**
@@ -215,7 +216,10 @@ function buildSurface(width: number, height: number, style: TerrainStyle, rng: R
   const h = new Float64Array(size + 1);
 
   const base = height * style.baseline;
-  const amplitude = height * 0.42 * (0.25 + style.roughness * 0.75);
+  // Raised from the original 0.42 — too few real mountains at that scale — but
+  // pulled back from 0.58, which combined with slow detail decay produced a saw
+  // blade rather than a range.
+  const amplitude = height * 0.52 * (0.25 + style.roughness * 0.8);
   h[0] = base + rng.range(-amplitude * 0.3, amplitude * 0.3);
   h[size] = base + rng.range(-amplitude * 0.3, amplitude * 0.3);
 
@@ -227,11 +231,17 @@ function buildSurface(width: number, height: number, style: TerrainStyle, rng: R
       h[i] = (h[i - half] + h[i + half]) / 2 + rng.range(-scale, scale);
     }
     stride = half;
-    scale *= Math.pow(0.5, 1.15 - style.roughness * 0.45);
+    // How fast the fine octaves die out, and so how jagged the silhouette is.
+    // The big shapes come from `amplitude` above; letting the small octaves
+    // survive as well is what turned mesas into needles, so they decay faster
+    // than the amplitude suggests.
+    scale *= Math.pow(0.5, 1.35 - style.roughness * 0.4);
   }
 
-  // Resample and clamp so there is always sky above and rock below.
-  const minY = Math.floor(height * 0.16);
+  // Resample and clamp so there is always sky above and rock below. minY is
+  // lower than the original 0.16 so peaks can reach further up, but not so low
+  // that a spire pokes into the HUD.
+  const minY = Math.floor(height * 0.12);
   const maxY = Math.floor(height * 0.9);
   const out = new Int32Array(width);
   for (let x = 0; x < width; x++) {
@@ -242,10 +252,11 @@ function buildSurface(width: number, height: number, style: TerrainStyle, rng: R
     out[x] = Math.max(minY, Math.min(maxY, Math.round(v)));
   }
 
-  // Two smoothing passes take the worst single-pixel spikes off without
-  // flattening the silhouette.
+  // Three smoothing passes: takes the single-pixel teeth and the sharpest
+  // ridge tips off without flattening the range itself. Also what keeps tanks
+  // from stalling on the way up a slope (see drive() in world.ts).
   const tmp = new Int32Array(width);
-  for (let pass = 0; pass < 2; pass++) {
+  for (let pass = 0; pass < 3; pass++) {
     for (let x = 0; x < width; x++) {
       const a = out[Math.max(0, x - 1)];
       const b = out[x];

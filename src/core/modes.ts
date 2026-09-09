@@ -105,7 +105,9 @@ export const GAME_MODES: readonly GameMode[] = [
     killReward: 1800,
     survivalReward: 700,
     retainAim: true,
-    aimAssist: 'shortArc',
+    // No trajectory preview: Advanced is the expert mode, and the short arc made
+    // ranging a shot far too easy. Modern keeps it as the training wheel.
+    aimAssist: 'off',
   },
 ];
 

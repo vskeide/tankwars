@@ -70,10 +70,14 @@ export const WEAPONS: readonly Weapon[] = [
     name: 'Cluster Bomb',
     blurb: 'Splits at apex into five bomblets. Wide, shallow, cruel.',
     behaviour: 'cluster',
-    damage: 20,
-    radius: 22,
-    ammoPerBuy: 4,
-    cost: 1200,
+    // Nerfed on feedback that it was too strong: full-spread max damage was
+    // 100 (5 x 20) for 1200cr/4 shots — cheaper and more forgiving than a
+    // direct hit with anything else in the rack. Down to a 70-damage ceiling,
+    // tighter radius, and a higher price.
+    damage: 14,
+    radius: 18,
+    ammoPerBuy: 3,
+    cost: 1600,
     submunitions: 5,
     windFactor: 1,
     gravityFactor: 1,

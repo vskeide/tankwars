@@ -13,6 +13,7 @@ import { atlasHas } from '../atlas';
 import { buildBackdrop } from '../backdrop';
 import { playMusic, toggleMusic } from '../music';
 import { TANK_SIZES, settings, updateSettings } from '../settings';
+import { continueMatch, savedMatchInfo } from '../savedMatch';
 
 /** Menu layout grid; the camera zooms it to fill the native canvas. */
 const LAYOUT_W = 640;
@@ -45,7 +46,7 @@ const MODES: ModeOption[] = [
 const DIFFS: Difficulty[] = ['rookie', 'gunner', 'veteran', 'deadeye'];
 const BOT_NAMES = ['Kilo', 'Vex', 'Sable', 'Rook', 'Ember', 'Tarn'];
 
-type Row = 'mode' | 'players' | 'p0' | 'p1' | 'p2' | 'p3' | 'rounds' | 'terrain' | 'size' | 'fire' | 'start';
+type Row = 'mode' | 'players' | 'p0' | 'p1' | 'p2' | 'p3' | 'rounds' | 'terrain' | 'placement' | 'size' | 'fire' | 'start' | 'resume';
 
 export class MenuScene extends Phaser.Scene {
   private setup: BattleSetup = structuredClone(DEFAULT_SETUP);
@@ -126,7 +127,8 @@ export class MenuScene extends Phaser.Scene {
         break;
       case 'Enter':
       case 'Space':
-        if (this.row === 'start') this.start();
+        if (this.row === 'resume') this.resume();
+        else if (this.row === 'start') this.start();
         else if (this.row.startsWith('p')) this.col = (this.col + 1) % 3;
         else this.adjust(1);
         this.sfx.play('select');
@@ -141,9 +143,11 @@ export class MenuScene extends Phaser.Scene {
     const r: Row[] = ['mode', 'players'];
     for (let i = 0; i < this.setup.players.length; i++) r.push(`p${i}` as Row);
     if (this.setup.kind !== 'campaign') r.push('rounds', 'terrain');
+    if (this.setup.kind === 'turn') r.push('placement');
     r.push('size');
     if (this.setup.kind === 'turn') r.push('fire');
     r.push('start');
+    if (savedMatchInfo()) r.push('resume');
     return r;
   }
 
@@ -191,6 +195,9 @@ export class MenuScene extends Phaser.Scene {
         s.terrainStyle = ids[(ids.indexOf(s.terrainStyle) + dir + ids.length) % ids.length];
         break;
       }
+      case 'placement':
+        s.placement = s.placement === 'random' ? 'drop' : 'random';
+        break;
       default: {
         if (!this.row.startsWith('p')) break;
         const p = s.players[Number(this.row.slice(1))];
@@ -230,6 +237,20 @@ export class MenuScene extends Phaser.Scene {
     return LEVELS[0].id;
   }
 
+  /** Pick up the saved turn-based match where it left off. */
+  private resume(): void {
+    const match = continueMatch();
+    if (!match) return;
+    this.scene.start('battle', {
+      ...structuredClone(this.setup),
+      kind: 'turn',
+      mode: match.mode.id,
+      players: match.config.players,
+      rounds: match.config.rounds,
+      resume: match,
+    });
+  }
+
   private start(): void {
     this.setup.seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) & 0x7fffffff;
     if (this.setup.kind === 'campaign') {
@@ -237,7 +258,7 @@ export class MenuScene extends Phaser.Scene {
       this.scene.start('commander', structuredClone(this.setup));
       return;
     }
-    this.scene.start('battle', structuredClone(this.setup));
+    this.scene.start('charselect', structuredClone(this.setup));
   }
 
   private redraw(): void {
@@ -251,8 +272,12 @@ export class MenuScene extends Phaser.Scene {
       const c = active ? hex(PAL.uiEdge) : hex(PAL.uiText);
       const t1 = this.add.text(x0, y, (active ? '▶ ' : '  ') + label, { fontFamily: 'monospace', fontSize: '9px', color: c }).setDepth(10);
       const t2 = this.add.text(x0 + 130, y, value, { fontFamily: 'monospace', fontSize: '9px', color: active ? hex(PAL.uiText) : hex(PAL.uiTextDim) }).setDepth(10);
-      this.clickable(t1, () => { this.row = row; this.col = 0; if (row === 'start') this.start(); });
-      this.clickable(t2, () => { this.row = row; this.col = 0; if (row === 'start') this.start(); else this.adjust(1); }, () => { this.row = row; this.adjust(-1); });
+      const activate = () => {
+        if (row === 'start') this.start();
+        else if (row === 'resume') this.resume();
+      };
+      this.clickable(t1, () => { this.row = row; this.col = 0; activate(); });
+      this.clickable(t2, () => { this.row = row; this.col = 0; if (row === 'start' || row === 'resume') activate(); else this.adjust(1); }, () => { this.row = row; this.adjust(-1); });
       this.texts.push(t1, t2);
       if (hint && active) this.texts.push(this.add.text(x0 + 130, y + 10, hint, { fontFamily: 'monospace', fontSize: '7px', color: hex(PAL.uiTextDim), wordWrap: { width: 300 } }).setDepth(10));
       y += hint && active ? 12 + Math.ceil(hint.length / 60) * 9 : 12;
@@ -287,6 +312,14 @@ export class MenuScene extends Phaser.Scene {
       line('ROUNDS', `‹ ${s.rounds} ›`, 'rounds');
       const ts = TERRAIN_STYLES.find((t) => t.id === s.terrainStyle);
       line('TERRAIN', `‹ ${ts ? ts.name.toUpperCase() : 'RANDOM'} ›`, 'terrain');
+      if (s.kind === 'turn') {
+        line(
+          'PLACEMENT',
+          `‹ ${s.placement === 'random' ? 'RANDOM SPOTS' : 'DROP YOUR OWN'} ›`,
+          'placement',
+          s.placement === 'random' ? '' : 'Each round you pick where your tank lands. Whoever drops first also fires first.',
+        );
+      }
     } else {
       const lv = LEVELS.find((l) => l.id === this.savedLevel())!;
       this.texts.push(this.add.text(x0 + 130, y, `next mission: ${LEVELS.indexOf(lv) + 1}/${LEVELS.length} — ${lv.name}`, { fontFamily: 'monospace', fontSize: '8px', color: hex(PAL.uiTextDim) }).setDepth(10));
@@ -297,6 +330,12 @@ export class MenuScene extends Phaser.Scene {
     if (s.kind === 'turn') line('FIRE', `‹ ${settings().chargeFire ? 'HOLD SPACE TO CHARGE' : 'SET POWER, TAP SPACE'} ›`, 'fire');
     y += 6;
     line(s.kind === 'campaign' ? 'OPEN CAMPAIGN MAP' : 'START BATTLE', this.row === 'start' ? 'press ENTER' : '', 'start');
+    const saved = savedMatchInfo();
+    if (saved) {
+      const when = new Date(saved.savedAt);
+      const stamp = `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`;
+      line('CONTINUE SAVED', `${saved.mode.toUpperCase()} round ${saved.round}/${saved.rounds} — ${saved.players.join(' vs ')} (${stamp})`, 'resume');
+    }
 
     this.texts.push(
       this.add.text(LAYOUT_W / 2, LAYOUT_H - 10, '↑↓ select   ←→ change   TAB next field   ENTER confirm   · or click: left = next, right = previous', { fontFamily: 'monospace', fontSize: '7px', color: hex(PAL.uiTextDim) }).setOrigin(0.5).setDepth(10),

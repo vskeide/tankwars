@@ -6,6 +6,15 @@ export class Rng {
     this.state = seed >>> 0;
   }
 
+  /** The whole generator state, for save games. */
+  get seedState(): number {
+    return this.state;
+  }
+
+  set seedState(v: number) {
+    this.state = v >>> 0;
+  }
+
   /** Uniform in [0, 1). */
   next(): number {
     this.state = (this.state + 0x6d2b79f5) >>> 0;

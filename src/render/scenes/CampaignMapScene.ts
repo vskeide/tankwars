@@ -7,14 +7,16 @@ import type { BattleSetup } from '../setup';
 import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { playMusic } from '../music';
-import { loadRun, savedLevelId } from '../campaignRun';
+import { loadLoadout, loadRun, savedLevelId } from '../campaignRun';
+import { campaignHost } from '../shopHost';
 import { commanderById } from '../../core/campaign/commanders';
 import { difficultyById } from '../../core/campaign/difficulty';
 
 /**
  * Level select on the painted campaign map. Nodes come from the white route
  * markers detected on the art; cleared levels are green, the next one pulses,
- * the rest are locked. ←→ / click to choose, ENTER to deploy, ESC back.
+ * the rest are locked. ←→ / click to choose, ENTER to deploy, B for the
+ * armoury (spend what the last mission paid), ESC back.
  */
 export class CampaignMapScene extends Phaser.Scene {
   private setup!: BattleSetup;
@@ -25,6 +27,7 @@ export class CampaignMapScene extends Phaser.Scene {
   private brief!: Phaser.GameObjects.Text;
   private sfx = new Sfx();
   private pulse = 0;
+  private purse!: Phaser.GameObjects.Text;
 
   constructor() {
     super('campaignMap');
@@ -89,6 +92,12 @@ export class CampaignMapScene extends Phaser.Scene {
       : `${cmd.name} · ${diff.name}`;
     this.add.text(NATIVE_W / 2, 70, summary, { fontFamily: 'monospace', fontSize: '15px', color: hex(PAL.uiText), backgroundColor: hex(PAL.uiInk) }).setOrigin(0.5, 0).setDepth(9).setPadding(8, 4, 8, 4);
 
+    this.purse = this.add
+      .text(NATIVE_W / 2, NATIVE_H - 34, '', { fontFamily: 'monospace', fontSize: '15px', color: hex(PAL.uiEdge) })
+      .setOrigin(0.5)
+      .setDepth(20);
+    this.events.on(Phaser.Scenes.Events.WAKE, () => this.refreshPurse());
+    this.refreshPurse();
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => this.onKey(e));
     this.input.once('pointerdown', () => this.sfx.unlock());
     playMusic(this, 'menu');
@@ -98,6 +107,15 @@ export class CampaignMapScene extends Phaser.Scene {
   private nodePos(i: number): { x: number; y: number } {
     const n = MAP_NODES[i];
     return { x: Math.round(n.x * NATIVE_W), y: Math.round(n.y * NATIVE_H) };
+  }
+
+  /** Credits and bought hull waiting to be spent, shown under the map. */
+  private refreshPurse(): void {
+    const l = loadLoadout();
+    const carried = Object.entries(l.ammo).filter(([, n]) => n > 0);
+    const kit = carried.length ? `  ·  carrying ${carried.map(([id, n]) => `${id} ×${n}`).join(', ')}` : '';
+    const hull = l.reinforcedHp > 0 ? `  ·  reinforced hull +${l.reinforcedHp}` : '';
+    this.purse.setText(`${l.credits} cr${hull}${kit}   —   B: armoury`);
   }
 
   private savedLevelIndex(): number {
@@ -123,6 +141,11 @@ export class CampaignMapScene extends Phaser.Scene {
         this.sfx.play('select');
         this.scene.start('battle', { ...this.setup, kind: 'campaign', levelId: LEVELS[this.sel].id, seed: (Date.now() ^ 0x5f3759df) & 0x7fffffff });
         // (commanderId / difficultyId ride along in the setup)
+        return;
+      case 'KeyB':
+        this.sfx.play('select');
+        this.scene.launch('shop', { host: campaignHost(this.setup.commanderId ?? 'rook') });
+        this.scene.sleep();
         return;
       case 'Escape':
         this.scene.start('menu');

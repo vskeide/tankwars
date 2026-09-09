@@ -14,6 +14,7 @@ import { buildBackdrop } from '../backdrop';
 import { TerrainView } from '../terrainView';
 import { Hud } from '../hud';
 import { Fx } from '../fx';
+import { ScreenFx } from '../screenFx';
 import { Sfx } from '../audio';
 import { InputRouter } from '../inputs';
 import { atlasHas, ensureHull, skinForClass, spriteScale } from '../atlas';
@@ -21,10 +22,11 @@ import { CLASS_BARREL, ENEMY_PARTS, ensureTeamTexture, hasParts, partMetrics } f
 import { sliceBiome } from '../biomeBackdrop';
 import { playMusic, toggleMusic } from '../music';
 import { settings } from '../settings';
-import { addScore, clearRun, loadRun, saveRun, setSavedLevel } from '../campaignRun';
+import { addScore, clearRun, loadLoadout, loadRun, saveLoadout, saveRun, setSavedLevel } from '../campaignRun';
 import { scoreRun, toHighScore, type RunStats } from '../../core/campaign/score';
 import { ensureTankTextures, hullTextureKey, barrelTextureKey } from '../sprites';
 import type { BattleSetup } from '../setup';
+import { clearSavedMatch, saveMatch } from '../savedMatch';
 
 interface TankView {
   hull: Phaser.GameObjects.Image;
@@ -89,18 +91,31 @@ export class BattleScene extends Phaser.Scene {
   private terrainView!: TerrainView;
   private hud!: Hud;
   private fx!: Fx;
+  private screenFx!: ScreenFx;
   private sfx = new Sfx();
   private inputs!: InputRouter;
   private bots = new Map<number, BotController>();
   private tankViews = new Map<number, TankView>();
   private projViews = new Map<number, ProjView>();
   private crateViews = new Map<number, Phaser.GameObjects.Container>();
+  private hazardViews = new Map<number, Phaser.GameObjects.Image>();
+  /** Objects making up the campaign intro card, destroyed when it is dismissed. */
+  private briefCard: Phaser.GameObjects.GameObject[] = [];
+  private droneViews = new Map<number, Phaser.GameObjects.Image>();
   private aimGfx!: Phaser.GameObjects.Graphics;
   private overlay!: Phaser.GameObjects.Container;
   private accumulator = 0;
   private lastTurnKey = '';
   private roundOverAt = -1;
   private charge = new Map<number, number>(); // arena: power charge per slot
+  /** Candidate drop column during the 'placing' phase, and its marker graphics. */
+  private placeX = 0;
+  private placeGfx!: Phaser.GameObjects.Graphics;
+  private placeConfirmLatch = false;
+  private lastPointerX = -1;
+  private lastPointerY = -1;
+  /** Set by the pointerdown listener; polling isDown() misses a quick click. */
+  private placeClick = false;
   /** Seconds an aim key has been held, per control id — drives the slow-start ramp. */
   private aimHold = new Map<string, number>();
 
@@ -183,13 +198,14 @@ export class BattleScene extends Phaser.Scene {
     const common = { players: s.players, rounds: s.rounds, seed: s.seed, width: TERRAIN_W, height: TERRAIN_H, terrainStyle: s.terrainStyle };
     if (s.kind === 'campaign') {
       const humans = s.players.filter((p) => !p.isBot).slice(0, 2);
-      this.campaign = new CampaignLevel({ levelId: s.levelId ?? LEVELS[0].id, players: humans.length ? humans : s.players.slice(0, 1), seed: s.seed, width: TERRAIN_W, height: TERRAIN_H, commanderId: s.commanderId, difficultyId: s.difficultyId });
+      this.campaign = new CampaignLevel({ levelId: s.levelId ?? LEVELS[0].id, players: humans.length ? humans : s.players.slice(0, 1), seed: s.seed, width: TERRAIN_W, height: TERRAIN_H, commanderId: s.commanderId, difficultyId: s.difficultyId, loadout: loadLoadout() });
       this.world = this.campaign.world;
     } else if (s.kind === 'arena') {
       this.arena = new ArenaMatch({ ...common, crateInterval: 9, windInterval: 12 });
       this.world = this.arena.world;
     } else {
-      this.turn = new TurnBasedMatch({ ...common, mode: s.mode });
+      // A match restored from a save arrives ready-made; otherwise start a new one.
+      this.turn = s.resume ?? new TurnBasedMatch({ ...common, mode: s.mode, placement: s.placement ?? 'drop' });
       this.world = this.turn.world;
     }
     this.lastRound = this.roundNumber();
@@ -198,7 +214,13 @@ export class BattleScene extends Phaser.Scene {
     this.terrainView = new TerrainView(this, this.world.terrain, 0, HUD_H, this.tileForBiome());
     this.placeDecor();
     this.aimGfx = this.add.graphics().setDepth(35);
+    this.placeGfx = this.add.graphics().setDepth(36);
+    this.input.on('pointerdown', () => {
+      this.placeClick = true;
+      this.dismissBriefCard();
+    });
     this.fx = new Fx(this, HUD_H);
+    this.screenFx = new ScreenFx(this);
     this.hud = new Hud(this, HUD_H);
     this.inputs = new InputRouter(this, 4);
     this.overlay = this.add.container(0, 0).setDepth(200).setVisible(false);
@@ -209,7 +231,15 @@ export class BattleScene extends Phaser.Scene {
     }
     if (this.campaign) {
       for (const boss of this.campaign.bosses) {
-        const key = atlasHas(`${boss.def.skin}.body`) ? `${boss.def.skin}.body` : atlasHas(`${boss.def.skin}.l`) ? `${boss.def.skin}.l` : atlasHas(`${boss.def.skin}.r`) ? `${boss.def.skin}.r` : null;
+        const key = atlasHas(`${boss.def.skin}.body`)
+          ? `${boss.def.skin}.body`
+          : atlasHas(`${boss.def.skin}.l`)
+            ? `${boss.def.skin}.l`
+            : atlasHas(`${boss.def.skin}.r`)
+              ? `${boss.def.skin}.r`
+              : atlasHas(boss.def.skin)
+                ? boss.def.skin
+                : null;
         const img = key ? this.add.image(boss.x, boss.y + HUD_H, key).setOrigin(0.5, 1).setDepth(28).setScale(spriteScale(key)) : null;
         // Sheet bodies face right; bosses face the players on their left.
         if (img && key && !key.endsWith('.l')) img.setFlipX(true);
@@ -221,11 +251,27 @@ export class BattleScene extends Phaser.Scene {
       if (this.scene.isActive('shop')) this.scene.stop('shop');
       this.scene.start('menu');
     });
+    // Both the Phaser sugar and a raw key check: some input paths (gamepad
+    // bridges, remote keyboards) deliver a keydown with an empty `code`, which
+    // the sugar cannot match.
+    this.input.keyboard!.on('keydown-SPACE', () => this.dismissBriefCard());
+    this.input.keyboard!.on('keydown-ENTER', () => this.dismissBriefCard());
+    this.input.keyboard!.on('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') this.dismissBriefCard();
+    });
+    this.input.keyboard!.on('keydown-F2', (e: KeyboardEvent) => {
+      e.preventDefault();
+      if (!this.turn) return this.hud.showBanner('ONLY TURN-BASED MATCHES SAVE', 1600);
+      if (this.turn.phase !== 'aim') return this.hud.showBanner('SAVE WHEN IT IS YOUR SHOT', 1600);
+      this.hud.showBanner(saveMatch(this.turn) ? 'MATCH SAVED' : 'SAVE FAILED', 1600);
+    });
     this.input.keyboard!.on('keydown-P', () => (this.paused = !this.paused));
     this.input.keyboard!.on('keydown-M', () => (this.sfx.muted = !this.sfx.muted));
     this.input.keyboard!.on('keydown-H', () => this.hud.toggleHelp(this.helpLines()));
     this.input.keyboard!.on('keydown-N', () => toggleMusic(this));
-    playMusic(this, this.campaign && this.campaign.bosses.length ? 'boss' : 'battle');
+    const realBoss = !!this.campaign?.bosses.some((b) => !b.def.quiet);
+    playMusic(this, realBoss ? 'boss' : 'battle');
+    if (this.campaign) this.showBriefCard();
     this.input.keyboard!.on('keydown-F', () => {
       if (this.scale.isFullscreen) this.scale.stopFullscreen();
       else this.scale.startFullscreen();
@@ -274,6 +320,7 @@ export class BattleScene extends Phaser.Scene {
       crags: { surface: 'tile.earth', deep: 'tile.ash' },
       basin: { surface: 'tile.salt', deep: 'tile.earth' },
       spires: { surface: 'tile.ash', deep: 'tile.scorched' },
+      canyon: { surface: 'tile.earth', deep: 'tile.ash' },
     };
     return m[this.world.terrain.style.id] ?? m.dunes;
   }
@@ -290,6 +337,7 @@ export class BattleScene extends Phaser.Scene {
       crags: ['decor.rock1', 'decor.rock2', 'decor.bones'],
       basin: ['decor.bones', 'decor.rock0', 'decor.shrub'],
       spires: ['decor.rock2', 'decor.bones', 'decor.shrub'],
+      canyon: ['decor.rock1', 'decor.rock2', 'decor.bones'],
     };
     const pool = (byBiome[this.world.terrain.style.id] ?? byBiome.dunes).filter((k) => atlasHas(k));
     if (!pool.length) return;
@@ -320,7 +368,11 @@ export class BattleScene extends Phaser.Scene {
     const horizon = Math.floor(HUD_H + TERRAIN_H * 0.62);
     // (backdrop is generated at full native size each round; ~2M px, a few ms)
     this.backdropKeys = buildBackdrop(this, NATIVE_W, NATIVE_H, horizon, seed);
-    const layers = sliceBiome(this, `bg-${this.world.terrain.style.id}`);
+    // Styles with no dedicated background art (added after the art pass) reuse
+    // the closest existing biome image.
+    const BG_ALIAS: Record<string, string> = { canyon: 'crags' };
+    const bgId = BG_ALIAS[this.world.terrain.style.id] ?? this.world.terrain.style.id;
+    const layers = sliceBiome(this, `bg-${bgId}`);
     if (layers) {
       // Sky at integer 2× fills from the top down past the horizon; the far and near
       // bands sit on the horizon at 1× and repeat mirrored so no seam shows.
@@ -431,7 +483,19 @@ export class BattleScene extends Phaser.Scene {
 
   private syncTankView(t: Tank, dt: number): void {
     const v = this.tankViews.get(t.index)!;
-    if (!t.alive) {
+    // A tank waiting to be dropped is not in the world yet; only the one whose
+    // turn it is to choose is drawn, as a translucent ghost at the cursor.
+    const ghost = !t.placed;
+    if (ghost) {
+      v.hull.setAlpha(0.5);
+      v.turret?.setAlpha(0.5);
+      v.barrel.setAlpha(0.5);
+    } else if (v.hull.alpha !== 1) {
+      v.hull.setAlpha(1);
+      v.turret?.setAlpha(1);
+      v.barrel.setAlpha(1);
+    }
+    if (!t.alive || (ghost && this.turn?.placingIndex !== t.index)) {
       v.hull.setVisible(false);
       v.turret?.setVisible(false);
       v.barrel.setVisible(false);
@@ -612,14 +676,22 @@ export class BattleScene extends Phaser.Scene {
           if (this.rec && this.turn?.phase === 'resolving') this.rec.fx.push({ step: this.rec.frames.length, x: e.at.x, y: e.at.y, radius: e.radius, weapon: e.weapon });
           this.fx.explosion(e.at.x, e.at.y, e.radius, e.weapon);
           this.sfx.play(e.radius > 50 ? 'explodeBig' : e.radius > 24 ? 'explode' : 'explodeSmall', 1, 0.85 + Math.random() * 0.3);
+          // Only the genuinely huge ordnance gets the screen-wide flash.
+          if (e.weapon.behaviour === 'nuke' || e.radius >= 60) this.screenFx.bigBlast(e.radius >= 80 ? 0.7 : 0.45);
           break;
         case 'fill':
           this.fx.landDust(e.at.x, e.at.y, 3);
           this.sfx.play('land');
           break;
+        case 'hazardArmed':
+          break;
+        case 'hazardBlown':
+          this.sfx.play(e.hazardKind === 'mine' ? 'explode' : 'explodeBig', 1, 1.05);
+          break;
         case 'burn':
           this.fx.burn(e.at.x, e.at.y);
           this.sfx.play('burn', 0.6);
+          this.screenFx.heatHaze();
           break;
         case 'split':
           this.fx.split(e.at.x, e.at.y);
@@ -776,16 +848,22 @@ export class BattleScene extends Phaser.Scene {
         steps++;
       }
     }
+    this.updatePlacement(frameDt);
     this.handleEvents(this.world.drainEvents());
     this.terrainView.update();
     for (const t of this.world.tanks) this.syncTankView(t, frameDt);
     this.syncProjectiles();
     this.syncCrates();
+    this.syncHazards();
+    this.syncDrones();
     this.syncBosses();
     this.updateDecor();
     this.drawAimAssist();
     this.fx.update(frameDt);
-    this.hud.update(this.world, this.currentForHud(), this.statusLine());
+    const watched = this.currentForHud();
+    this.screenFx.setHealth(watched && watched.alive ? watched.hp / Math.max(1, watched.maxHp) : 1);
+    this.screenFx.update(frameDt);
+    this.hud.update(this.world, watched, this.statusLine());
     this.checkPhase(frameDt);
   }
 
@@ -811,10 +889,66 @@ export class BattleScene extends Phaser.Scene {
     } else if (this.campaign) {
       const intents = this.world.tanks.map((t, i) => (t.isBot ? this.bots.get(t.index)!.arenaIntent(this.world, t, dt) : this.arenaIntent(i, t, dt)));
       this.campaign.update(intents, dt);
+      // Hold the reveal and the taunts until the briefing is out of the way,
+      // otherwise all three cards land on top of each other on a boss level.
+      if (this.briefCard.length) return;
       for (const msg of this.campaign.banners.splice(0)) {
         this.hud.showBanner(msg, 1800);
         const boss = this.campaign.bosses.find((b) => b.def.name.toUpperCase() === msg);
         if (boss) this.bossCard(boss.def.name, boss.index);
+      }
+      for (const t of this.campaign.taunts.splice(0)) this.tauntCard(t.name, t.portrait, t.line);
+    }
+  }
+
+  /** Mines and barrels: static sprites that vanish when they go off. */
+  private syncHazards(): void {
+    const seen = new Set<number>();
+    for (const h of this.world.hazards) {
+      seen.add(h.id);
+      let v = this.hazardViews.get(h.id);
+      if (!v) {
+        const key = h.hazardKind === 'mine' ? 'hazard.mine' : 'barrel.explosive';
+        if (!atlasHas(key)) continue;
+        v = this.add.image(0, 0, key).setOrigin(0.5, 1).setDepth(24).setScale(spriteScale(key));
+        this.hazardViews.set(h.id, v);
+      }
+      v.setPosition(Math.round(h.x), Math.round(h.y + HUD_H));
+      // Barrels take damage before they blow; show it.
+      if (h.hazardKind === 'barrel') v.setTint(h.hp < h.maxHp * 0.5 ? 0xffb066 : 0xffffff);
+    }
+    for (const [id, v] of this.hazardViews) {
+      if (!seen.has(id)) {
+        v.destroy();
+        this.hazardViews.delete(id);
+      }
+    }
+  }
+
+  /** Hive drones: one sprite each, banked in the direction of travel. */
+  private syncDrones(): void {
+    if (!this.campaign) {
+      return;
+    }
+    const seen = new Set<number>();
+    for (const d of this.campaign.drones) {
+      if (!d.hp.alive) continue;
+      seen.add(d.hp.id);
+      let v = this.droneViews.get(d.hp.id);
+      if (!v) {
+        if (!atlasHas('boss.hive.drone')) continue;
+        v = this.add.image(0, 0, 'boss.hive.drone').setOrigin(0.5).setDepth(33).setScale(spriteScale('boss.hive.drone'));
+        this.droneViews.set(d.hp.id, v);
+      }
+      v.setPosition(Math.round(d.hp.x), Math.round(d.hp.y + HUD_H));
+      v.setFlipX(d.vx < 0);
+      // Small bank angle from the climb rate reads as flight without an animation.
+      v.setRotation(Math.max(-0.5, Math.min(0.5, d.vy / 400)) * (d.vx < 0 ? -1 : 1));
+    }
+    for (const [id, v] of this.droneViews) {
+      if (!seen.has(id)) {
+        v.destroy();
+        this.droneViews.delete(id);
       }
     }
   }
@@ -968,13 +1102,18 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private currentForHud(): Tank | null {
-    if (this.turn) return this.turn.currentTank;
+    if (this.turn) return this.turn.placingTank ?? this.turn.currentTank;
     return this.world.tanks.find((t) => !t.isBot && t.alive) ?? this.world.tanks[0];
   }
 
   private statusLine(): string {
     if (this.turn) {
       const m = this.turn;
+      if (m.phase === 'placing') {
+        const t = m.placingTank;
+        const left = m.order.filter((i) => !this.world.tanks[i].placed).length;
+        return `Round ${m.round}/${this.setup.rounds} · ${t?.name.toUpperCase() ?? ''} — choose your ground · move the mouse or ←→, ENTER or click to drop · ${left} left · first to drop fires first`;
+      }
       const cls = this.world.mode.tankClasses ? ` · ${m.currentTank.cls.name}` : '';
       const fuel = this.world.mode.movement ? ` · fuel ${m.currentTank.fuel}` : '';
       const drive = this.world.mode.movement ? '  A/D drive' : '';
@@ -990,6 +1129,78 @@ export class BattleScene extends Phaser.Scene {
     if (a.phase === 'countdown') return `Round ${a.round}/${this.setup.rounds} · ARENA · starting in ${Math.ceil(a.countdown)}`;
     const solo = this.world.tanks.filter((t) => !t.isBot).length <= 1;
     return `Round ${a.round}/${this.setup.rounds} · ARENA · ${solo ? 'A/D or ←→ drive  W/S or ↑↓ aim  hold SPACE to charge' : 'per-player keys (H)  ←→ drive  ↑↓ aim  hold FIRE to charge'}  H help`;
+  }
+
+  // ---- drop placement ---------------------------------------------------------------
+
+  /**
+   * The 'placing' phase: the tank on the clock is previewed at the cursor and
+   * dropped where the player confirms. Mouse moves the marker, arrows nudge it,
+   * ENTER / SPACE / click commits. Illegal spots (too near a tank already down,
+   * or off the edges) draw red and refuse the drop.
+   */
+  private updatePlacement(dt: number): void {
+    const m = this.turn;
+    this.placeGfx.clear();
+    if (!m || m.phase !== 'placing') {
+      this.placeConfirmLatch = false;
+      return;
+    }
+    const t = m.placingTank;
+    if (!t) return;
+    const { min, max } = m.placeBounds();
+    if (this.placeX === 0) this.placeX = Math.round((min + max) / 2);
+
+    // Mouse wins when it has moved; otherwise the arrows nudge, with the same
+    // slow-start ramp the aim controls use.
+    const ptr = this.input.activePointer;
+    if (ptr.x !== this.lastPointerX || ptr.y !== this.lastPointerY) {
+      this.lastPointerX = ptr.x;
+      this.lastPointerY = ptr.y;
+      this.placeX = Math.round(ptr.worldX);
+    } else {
+      const left = this.inputs.isDown('ArrowLeft') || this.inputs.isDown('KeyA');
+      const right = this.inputs.isDown('ArrowRight') || this.inputs.isDown('KeyD');
+      const dir = (right ? 1 : 0) - (left ? 1 : 0);
+      if (dir !== 0) this.placeX += dir * 260 * dt * this.aimRamp('place', true, dt);
+      else this.aimRamp('place', false, dt);
+    }
+    this.placeX = Math.max(min, Math.min(max, Math.round(this.placeX)));
+    const legal = m.canPlaceAt(this.placeX);
+
+    // Preview: the tank itself is unplaced, so moving it is free — the ghost IS
+    // the tank, sitting on the surface it would land on.
+    t.x = this.placeX;
+    t.y = Math.min(this.world.terrain.surfaceY(this.placeX), this.world.terrain.height - 1);
+    t.tilt = this.world.terrain.surfaceAngle(this.placeX, t.cls.halfWidth);
+    t.facing = this.placeX < this.world.width / 2 ? 1 : -1;
+
+    const team = TEAM_COLOURS[t.colour % TEAM_COLOURS.length];
+    const col = legal ? team.lit : PAL.uiDanger;
+    const gy = t.y + HUD_H;
+    this.placeGfx.fillStyle(col, 0.5);
+    for (let y = HUD_H + 8; y < gy - 30; y += 12) this.placeGfx.fillRect(this.placeX - 1, y, 2, 6);
+    this.placeGfx.fillStyle(col, 0.9).fillRect(this.placeX - 16, gy + 2, 32, 2);
+    // Keep-out markers for the minimum gap, so the refusal is not a mystery.
+    this.placeGfx.fillStyle(col, 0.35);
+    this.placeGfx.fillRect(this.placeX - 55, gy + 6, 110, 1);
+
+    const keyHeld = this.inputs.isDown('Enter') || this.inputs.isDown('Space') || this.inputs.isDown('NumpadEnter');
+    const clicked = this.placeClick;
+    this.placeClick = false;
+    if ((keyHeld && !this.placeConfirmLatch) || clicked) {
+      this.placeConfirmLatch = keyHeld;
+      if (legal && m.placeAt(this.placeX)) {
+        this.sfx.play('select');
+        this.fx.landDust(this.placeX, t.y, 1);
+        const next = m.placingTank;
+        if (next) this.hud.showBanner(`${next.name.toUpperCase()} — DROP`, 900);
+      } else {
+        this.sfx.play('back');
+      }
+    } else if (!keyHeld) {
+      this.placeConfirmLatch = false;
+    }
   }
 
   private drawAimAssist(): void {
@@ -1080,6 +1291,88 @@ export class BattleScene extends Phaser.Scene {
     this.hud.showBanner(`ROUND ${this.roundNumber()}`, 1400);
   }
 
+  /**
+   * Campaign intro card: commander portrait, mission number and brief, and what
+   * is waiting on the level. Dismissed with SPACE/ENTER/click rather than a
+   * timer, so a briefing can actually be read.
+   */
+  private showBriefCard(): void {
+    const c = this.campaign!;
+    const li = LEVELS.findIndex((l) => l.id === c.level.id) + 1;
+    const w = 900;
+    const h = 420;
+    const x = NATIVE_W / 2 - w / 2;
+    const y = NATIVE_H / 2 - h / 2;
+    const g = this.add.graphics().setDepth(140).setScrollFactor(0);
+    g.fillStyle(PAL.uiInk, 0.94).fillRoundedRect(x, y, w, h, 8);
+    g.lineStyle(2, PAL.uiEdge, 1).strokeRoundedRect(x, y, w, h, 8);
+    const items: Phaser.GameObjects.GameObject[] = [g];
+    const txt = (tx: number, ty: number, str: string, size: string, colour: number, wrap = 0) => {
+      const o = this.add
+        .text(tx, ty, str, {
+          fontFamily: 'monospace',
+          fontSize: size,
+          color: hex(colour),
+          lineSpacing: 6,
+          ...(wrap ? { wordWrap: { width: wrap } } : {}),
+        })
+        .setDepth(141)
+        .setScrollFactor(0);
+      items.push(o);
+      return o;
+    };
+    const pk = c.commander.portrait;
+    if (atlasHas(pk)) items.push(this.add.image(x + 130, y + 150, pk).setDepth(141).setScrollFactor(0).setDisplaySize(180, 180));
+    txt(x + 40, y + 254, c.commander.name.toUpperCase(), '20px', PAL.uiEdge);
+    txt(x + 40, y + 280, c.commander.title, '13px', PAL.uiTextDim);
+
+    txt(x + 250, y + 34, `MISSION ${li} / ${LEVELS.length}`, '15px', PAL.uiTextDim);
+    txt(x + 250, y + 58, c.level.name.toUpperCase(), '32px', PAL.uiText);
+    txt(x + 250, y + 108, c.level.brief, '16px', PAL.uiText, w - 300);
+
+    txt(x + 250, y + 200, 'OPPOSITION', '13px', PAL.uiEdge);
+    const roster = c.roster();
+    const lines = roster.length ? roster.map((r) => `  ${r.count} × ${r.label}`) : ['  nothing on the scans'];
+    txt(x + 250, y + 222, lines.join('\n'), '15px', PAL.uiText);
+
+    txt(x + 250, y + h - 56, 'SPACE / ENTER / click — begin', '15px', PAL.uiTextDim);
+    this.briefCard = items;
+  }
+
+  private dismissBriefCard(): void {
+    if (!this.briefCard.length) return;
+    this.briefCard.forEach((o) => o.destroy());
+    this.briefCard = [];
+    this.campaign?.beginFight();
+  }
+
+  /** Boss speech card on a phase change. */
+  private tauntCard(name: string, portrait: string, line: string): void {
+    const w = 620;
+    const x = NATIVE_W / 2 - w / 2;
+    const y = NATIVE_H - 260;
+    const g = this.add.graphics().setDepth(132).setScrollFactor(0);
+    g.fillStyle(PAL.uiInk, 0.9).fillRoundedRect(x, y, w, 96, 6);
+    g.lineStyle(2, PAL.uiDanger, 0.9).strokeRoundedRect(x, y, w, 96, 6);
+    const items: Phaser.GameObjects.GameObject[] = [g];
+    if (portrait && atlasHas(portrait)) {
+      items.push(this.add.image(x + 52, y + 48, portrait).setDepth(133).setScrollFactor(0).setDisplaySize(76, 76));
+    }
+    items.push(
+      this.add
+        .text(x + 104, y + 18, name.toUpperCase(), { fontFamily: 'monospace', fontSize: '15px', color: hex(PAL.uiDanger) })
+        .setDepth(133)
+        .setScrollFactor(0),
+    );
+    items.push(
+      this.add
+        .text(x + 104, y + 42, line, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText), wordWrap: { width: w - 130 } })
+        .setDepth(133)
+        .setScrollFactor(0),
+    );
+    this.time.delayedCall(3600, () => items.forEach((i) => i.destroy()));
+  }
+
   /** Portrait card for a boss reveal. */
   private bossCard(name: string, index: number): void {
     const pk = `portrait.boss${Math.min(3, index + 1)}`;
@@ -1105,6 +1398,16 @@ export class BattleScene extends Phaser.Scene {
     run.damageTaken += c.stats.damageTaken;
     run.crates += c.stats.crates;
     const ironmanOver = !won && c.difficulty.ironman;
+    // Carry the surviving loadout — credits including the reward, ammo left in
+    // the racks, and the bought hull — into the armoury on the map.
+    if (won) {
+      const lead = c.world.tanks[c.playerIndices[0]];
+      if (lead) {
+        const ammo: Record<string, number> = {};
+        for (const [id, n] of lead.ammo) if (n > 0 && id !== 'shell') ammo[id] = n;
+        saveLoadout({ credits: lead.credits, ammo, reinforcedHp: lead.reinforcedHp });
+      }
+    }
     if (won) {
       run.levelsCleared = Math.max(run.levelsCleared, LEVELS.findIndex((l) => l.id === c.level.id) + 1);
       if (next) setSavedLevel(next);
@@ -1151,11 +1454,14 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private showResults(): void {
-    const winner = this.turn ? this.turn.matchWinner : this.arena!.matchWinner;
+    // The match is over: a save of it would only offer to replay the last shot.
+    clearSavedMatch();
+    const match = this.turn ?? this.arena!;
+    const winner = match.matchWinner;
     const w = this.world.tanks[winner];
     const team = TEAM_COLOURS[w.colour % TEAM_COLOURS.length];
     const bg = this.add.graphics().fillStyle(PAL.uiInk, 0.85).fillRect(0, 0, NATIVE_W, NATIVE_H);
-    const title = this.add.text(NATIVE_W / 2, 200, `${w.name.toUpperCase()} WINS THE WAR`, { fontFamily: 'monospace', fontSize: '32px', color: hex(team.lit), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
+    const title = this.add.text(NATIVE_W / 2, 160, `${w.name.toUpperCase()} WINS THE WAR`, { fontFamily: 'monospace', fontSize: '32px', color: hex(team.lit), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
     const rows = [...this.world.tanks].sort((a, b) => b.roundsWon * 1000 + b.kills - (a.roundsWon * 1000 + a.kills));
     const items: Phaser.GameObjects.GameObject[] = [bg, title];
     const cardW = 300;
@@ -1164,15 +1470,29 @@ export class BattleScene extends Phaser.Scene {
       const cx = x0 + i * cardW;
       const tc = TEAM_COLOURS[t.colour % TEAM_COLOURS.length];
       const card = this.add.graphics();
-      card.fillStyle(PAL.uiPanel, 1).fillRoundedRect(cx - 130, 300, 260, 330, 6);
-      card.lineStyle(2, i === 0 ? PAL.uiEdge : tc.mid, 1).strokeRoundedRect(cx - 130, 300, 260, 330, 6);
+      card.fillStyle(PAL.uiPanel, 1).fillRoundedRect(cx - 130, 260, 260, 390, 6);
+      card.lineStyle(2, i === 0 ? PAL.uiEdge : tc.mid, 1).strokeRoundedRect(cx - 130, 260, 260, 390, 6);
       items.push(card);
       const pk = `portrait.p${(t.colour % 6) + 1}`;
-      if (atlasHas(pk)) items.push(this.add.image(cx, 380, pk).setDisplaySize(140, 140));
-      items.push(this.add.text(cx, 462, `${i + 1}. ${t.name}`, { fontFamily: 'monospace', fontSize: '20px', color: hex(tc.lit) }).setOrigin(0.5, 0));
-      items.push(this.add.text(cx, 496, `rounds ${t.roundsWon}\nkills ${t.kills}\ncredits ${t.credits}`, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText), align: 'center', lineSpacing: 6 }).setOrigin(0.5, 0));
+      if (atlasHas(pk)) items.push(this.add.image(cx, 330, pk).setDisplaySize(110, 110));
+      items.push(this.add.text(cx, 396, `${i + 1}. ${t.name}`, { fontFamily: 'monospace', fontSize: '20px', color: hex(tc.lit) }).setOrigin(0.5, 0));
+      const s = match.stats.get(t.index);
+      const acc = s && s.shotsFired > 0 ? Math.round((s.hits / s.shotsFired) * 100) : 0;
+      const lines = [
+        `rounds ${t.roundsWon}   kills ${t.kills}`,
+        `credits ${t.credits}`,
+        '',
+        `shots ${s?.shotsFired ?? 0}   hits ${s?.hits ?? 0}   acc ${acc}%`,
+        `dmg dealt ${s?.damageDealt ?? 0}`,
+        `dmg taken ${s?.damageTaken ?? 0}`,
+      ];
+      items.push(
+        this.add
+          .text(cx, 430, lines.join('\n'), { fontFamily: 'monospace', fontSize: '15px', color: hex(PAL.uiText), align: 'center', lineSpacing: 8 })
+          .setOrigin(0.5, 0),
+      );
     });
-    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 60, 'ENTER — back to menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
+    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 40, 'ENTER — back to menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
     items.push(hint);
     this.overlay.add(items).setVisible(true);
     this.paused = true;
