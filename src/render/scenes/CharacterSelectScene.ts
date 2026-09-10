@@ -10,6 +10,7 @@ import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { playMusic } from '../music';
 import { touchActive } from '../settings';
+import { makeButton, type Button } from '../ui';
 
 /** One line for a hull's passive, in the same words the shop and HUD use. */
 function describePerk(cls: ReturnType<typeof tankClassById>): string {
@@ -46,6 +47,8 @@ export class CharacterSelectScene extends Phaser.Scene {
   private sfx = new Sfx();
   private taken = new Set<number>();
   private dyn: Phaser.GameObjects.GameObject[] = [];
+  /** PLAY AS <name>: the explicit confirm, rebuilt with the card on every refresh. */
+  private pickButton: Button | null = null;
 
   constructor() {
     super('charselect');
@@ -144,6 +147,19 @@ export class CharacterSelectScene extends Phaser.Scene {
     }
   }
 
+  /** Confirm the highlighted portrait: pick outright on touch, or go to the name step. */
+  private confirmPick(): void {
+    this.sfx.play('select');
+    if (touchActive()) {
+      this.applyPick(this.humanSlots[this.turn], this.gridSel, '');
+      this.advance();
+      return;
+    }
+    this.nameBuf = this.currentPlayer().name;
+    this.mode = 'name';
+    this.refresh();
+  }
+
   /** Bot slots, or a human who skipped: nearest untaken character, default name kept. */
   private autoAssign(slot: number): void {
     const free = COMMANDERS.map((_, i) => i).find((i) => !this.taken.has(i)) ?? 0;
@@ -182,6 +198,8 @@ export class CharacterSelectScene extends Phaser.Scene {
       this.setup.players.forEach((p, i) => {
         if (p.isBot) this.autoAssign(i);
       });
+      this.pickButton?.destroy();
+      this.pickButton = null;
       this.scene.start('battle', structuredClone(this.setup));
       return;
     }
@@ -231,20 +249,22 @@ export class CharacterSelectScene extends Phaser.Scene {
       );
       const hit = this.add.zone(cx, 205, 230, 230).setInteractive({ useHandCursor: true });
       hit.on('pointerover', () => {
-        if (this.mode !== 'grid' || this.gridSel === i) return;
+        if (touchActive() || this.mode !== 'grid' || this.gridSel === i) return;
         this.gridSel = i;
         this.sfx.play('tick');
         this.refresh();
       });
       hit.on('pointerdown', () => {
         this.sfx.play('tick');
-        this.gridSel = i;
         if (this.mode === 'grid' && touchActive()) {
-          // Tap picks outright; the name step needs a keyboard.
-          this.applyPick(this.humanSlots[this.turn], i, '');
-          this.advance();
+          // First tap shows the card; a second tap on the same portrait picks.
+          // Picking on the first tap gave nobody a chance to read the stats.
+          if (this.gridSel === i) return this.confirmPick();
+          this.gridSel = i;
+          this.refresh();
           return;
         }
+        this.gridSel = i;
         if (this.mode === 'grid') {
           this.nameBuf = p.name;
           this.mode = 'name';
@@ -255,6 +275,13 @@ export class CharacterSelectScene extends Phaser.Scene {
     });
 
     if (this.mode === 'grid') this.drawStats();
+    this.pickButton?.destroy();
+    this.pickButton = null;
+    if (this.mode === 'grid') {
+      const c = COMMANDERS[this.gridSel];
+      const label = touchActive() ? `PLAY AS ${c.name.toUpperCase()}` : `PICK ${c.name.toUpperCase()}`;
+      this.pickButton = makeButton(this, NATIVE_W / 2 - 170, 574, 340, 56, label, () => this.confirmPick(), { fontSize: '20px', depth: 12, colour: PAL.glow });
+    }
 
     if (this.mode === 'name') {
       const c = COMMANDERS[this.gridSel];
@@ -273,7 +300,7 @@ export class CharacterSelectScene extends Phaser.Scene {
     const hint =
       this.mode === 'grid'
         ? touchActive()
-          ? 'tap a portrait to pick — you play under that character’s name'
+          ? 'tap a portrait to read about it   ·   tap it again, or PLAY AS, to pick — you play under that character’s name'
           : '←→ pick   ENTER confirm & name   ESC skip (auto-assign)'
         : 'type a name   ENTER confirm   BACKSPACE edit   ESC back to grid';
     this.dyn.push(this.add.text(NATIVE_W / 2, NATIVE_H - 40, hint, { fontFamily: 'monospace', fontSize: '15px', color: hex(PAL.uiTextDim) }).setOrigin(0.5));

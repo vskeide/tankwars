@@ -267,6 +267,11 @@ use that, and `tests/countdown.test.ts` pins the hold itself.
   the first touch committed on the spot. A mouse still previews on hover; a click is a zero-length
   drag.
 
+- *Character select previews on touch.* A tap used to pick outright, so nobody read the card.
+  First tap shows the card, a second tap on the same portrait (or the PLAY AS button) picks.
+  Hover is ignored on touch — a touch start raises `pointerover` on the card under it, which
+  would have pre-selected and turned the first tap into the confirming one.
+
 Known gaps: the pads are drawn at fixed canvas positions with no safe-area insets, so a phone with
 a large corner radius may clip the drive pads; two-player hotseat on touch is not addressed
 (Arena is off, and turn-based passes one device between players, which works).
