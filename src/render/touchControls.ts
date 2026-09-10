@@ -3,10 +3,9 @@
  * does, so the rules layers never know which one they are talking to.
  *
  * The model is direct manipulation rather than a virtual gamepad:
- *   - touch near the tank on the clock and drag: the barrel follows the finger
- *     (the decision is made at touch-down, so the drag can go anywhere after);
- *   - hold anywhere else in the open, or on the FIRE pad: power charges, lifting
- *     fires — a short tap is ignored so a stray touch cannot waste a turn;
+ *   - touch anywhere that is not a pad and drag: the barrel follows the finger;
+ *   - hold the FIRE pad: power charges, lifting fires — a short tap is ignored
+ *     so a stray touch cannot waste a turn. Nothing else fires;
  *   - two drive pads when the mode has fuel, a weapon pad, and a tap on the
  *     HUD rack all do what their keys do.
  *
@@ -20,7 +19,7 @@ import { PAL, hex } from '../core/palette';
 import { hullRotation, type Tank, type World } from '../core/world';
 import { weaponById } from '../core/weapons';
 import { HUD_H, NATIVE_H, NATIVE_W } from './config';
-import { aimAngleFrom, classifyTouch, FIRE_MIN_HOLD_MS, TOUCH_DEADZONE, type Gesture, type HitRect, type Pt } from './touchMath';
+import { aimAngleFrom, classifyTouch, FIRE_MIN_HOLD_MS, type Gesture, type HitRect, type Pt } from './touchMath';
 
 export interface TouchIntent {
   /** Same unions as Intent, so the fields merge without a cast. */
@@ -146,7 +145,7 @@ export class TouchControls {
     for (const t of this.touches.values()) {
       if (t.gesture.kind === 'button' && t.gesture.id === 'left') move -= 1;
       else if (t.gesture.kind === 'button' && t.gesture.id === 'right') move += 1;
-      else if (t.gesture.kind === 'fire' || (t.gesture.kind === 'button' && t.gesture.id === 'fire')) {
+      else if (t.gesture.kind === 'button' && t.gesture.id === 'fire') {
         // Held only once it has been down long enough to be a hold, not a tap.
         if (now - t.startedAt >= FIRE_MIN_HOLD_MS) out.fireHeld = true;
       }
@@ -165,9 +164,6 @@ export class TouchControls {
       const n = this.world.ammoFor(t, w.id);
       this.readout.setText(`ANG ${Math.round(t.angle)}°   PWR ${Math.round(t.power)}`);
       this.labels.get('weapon')?.setText(`${w.name.toUpperCase()}  ${n < 0 ? '∞' : '×' + n}`);
-      // Faint ring: touch inside it to grab the barrel, outside to fire.
-      const c = this.tankScreen(t);
-      this.dyn.lineStyle(2, PAL.uiEdge, 0.22).strokeCircle(c.x, c.y, TOUCH_DEADZONE);
     } else {
       this.readout.setText('');
     }
@@ -180,16 +176,20 @@ export class TouchControls {
         const p = this.pivotScreen(t);
         this.dyn.lineStyle(3, PAL.glow, 0.7).lineBetween(p.x, p.y, a.at.x, a.at.y);
         this.dyn.fillStyle(PAL.glow, 0.9).fillCircle(a.at.x, a.at.y, 10);
-      } else if ((a.gesture.kind === 'fire' || (a.gesture.kind === 'button' && a.gesture.id === 'fire')) && t) {
+      } else if (a.gesture.kind === 'button' && a.gesture.id === 'fire' && t) {
         const held = now - a.startedAt;
         const armed = held >= FIRE_MIN_HOLD_MS;
-        // Ring that fills with the power the shot has charged to.
+        // Ring round the FIRE pad that fills with the power the shot has charged to.
+        const pad = this.buttons.find((b) => b.id === 'fire')!;
+        const cx = pad.x + pad.w / 2;
+        const cy = pad.y + pad.h / 2;
+        const r = pad.w / 2 + 10;
         const frac = Math.max(0, Math.min(1, (t.power - 20) / 80));
-        this.dyn.lineStyle(4, armed ? PAL.fireHot : PAL.uiTextDim, 0.35).strokeCircle(a.at.x, a.at.y, 64);
+        this.dyn.lineStyle(4, armed ? PAL.fireHot : PAL.uiTextDim, 0.35).strokeCircle(cx, cy, r);
         if (armed) {
           this.dyn.lineStyle(8, PAL.fireHot, 0.95);
           this.dyn.beginPath();
-          this.dyn.arc(a.at.x, a.at.y, 64, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2, false);
+          this.dyn.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2, false);
           this.dyn.strokePath();
         }
       }
@@ -224,11 +224,7 @@ export class TouchControls {
     if (!this.enabled) return;
     const at = { x: p.x, y: p.y };
     const t = this.target;
-    const tankAt = t ? this.tankScreen(t) : null;
-    let g = classifyTouch(at, tankAt, this.buttons);
-    // The FIRE pad over a cornered tank is still the tank's dead zone: reaching
-    // for the barrel there must not launch a shell.
-    if (g.kind === 'button' && g.id === 'fire' && tankAt && Math.hypot(at.x - tankAt.x, at.y - tankAt.y) <= TOUCH_DEADZONE) g = { kind: 'aim' };
+    const g = classifyTouch(at, this.buttons);
     if (g.kind === 'button' && g.id === 'weapon') {
       this.cycleQueued = 1;
       this.touches.set(p.id, { gesture: g, startedAt: this.scene.time.now, at });
@@ -260,11 +256,6 @@ export class TouchControls {
     // Turn-based hulls turn to face the shot like they do for the keys; in real
     // time the hull faces the way it drives, so the barrel is set on its own.
     this.world.aim(t, angle, !this.opts.realTime);
-  }
-
-  /** Hull centre in screen coordinates. */
-  private tankScreen(t: Tank): Pt {
-    return { x: t.x, y: t.y + HUD_H - t.halfHeight };
   }
 
   /** Barrel pivot in screen coordinates — the same point the renderer draws from. */

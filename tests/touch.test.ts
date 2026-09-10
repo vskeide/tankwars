@@ -4,41 +4,27 @@
  * shot — so they live in a Phaser-free module and get pinned here.
  */
 import { describe, expect, it } from 'vitest';
-import { aimAngleFrom, chargeAfter, classifyTouch, FIRE_MIN_HOLD_MS, firesOnRelease, TOUCH_DEADZONE, type HitRect } from '../src/render/touchMath';
+import { aimAngleFrom, chargeAfter, classifyTouch, FIRE_MIN_HOLD_MS, firesOnRelease, type HitRect } from '../src/render/touchMath';
 
 const buttons: HitRect[] = [
   { id: 'left', x: 80, y: 850, w: 150, h: 150 },
   { id: 'fire', x: 1620, y: 800, w: 220, h: 220 },
 ];
-const tank = { x: 900, y: 700 };
 
 describe('classifyTouch', () => {
-  it('a touch on a button is that button, whatever is under it', () => {
-    expect(classifyTouch({ x: 100, y: 900 }, tank, buttons)).toEqual({ kind: 'button', id: 'left' });
-    expect(classifyTouch({ x: 1700, y: 900 }, tank, buttons)).toEqual({ kind: 'button', id: 'fire' });
+  it('a touch on a pad is that pad', () => {
+    expect(classifyTouch({ x: 100, y: 900 }, buttons)).toEqual({ kind: 'button', id: 'left' });
+    expect(classifyTouch({ x: 1700, y: 900 }, buttons)).toEqual({ kind: 'button', id: 'fire' });
   });
 
-  it('a touch near the tank aims; it never fires', () => {
-    expect(classifyTouch({ x: 900, y: 700 }, tank, buttons)).toEqual({ kind: 'aim' });
-    expect(classifyTouch({ x: 900 + TOUCH_DEADZONE - 1, y: 700 }, tank, buttons)).toEqual({ kind: 'aim' });
-    expect(classifyTouch({ x: 900, y: 700 - TOUCH_DEADZONE + 1 }, tank, buttons)).toEqual({ kind: 'aim' });
+  it('anything else is an aim, wherever the tank is — nothing in the open fires', () => {
+    expect(classifyTouch({ x: 900, y: 700 }, buttons)).toEqual({ kind: 'aim' });
+    expect(classifyTouch({ x: 300, y: 300 }, buttons)).toEqual({ kind: 'aim' });
+    expect(classifyTouch({ x: 1500, y: 1000 }, buttons)).toEqual({ kind: 'aim' });
   });
 
-  it('a touch out in the open is a hold-to-fire', () => {
-    expect(classifyTouch({ x: 900 + TOUCH_DEADZONE + 1, y: 700 }, tank, buttons)).toEqual({ kind: 'fire' });
-    expect(classifyTouch({ x: 300, y: 300 }, tank, buttons)).toEqual({ kind: 'fire' });
-  });
-
-  it('the fire button sitting over the tank is still an aim: the dead zone is checked on buttons too', () => {
-    // A tank parked in the bottom-right corner, under where the fire button is.
-    const cornered = { x: 1700, y: 900 };
-    // Buttons win by default, so the caller decides; but with the dead zone applied
-    // first, as touchControls does for the fire button, the classification is aim.
-    expect(classifyTouch({ x: 1710, y: 905 }, cornered, [])).toEqual({ kind: 'aim' });
-  });
-
-  it('with no tank on the clock, nothing is a dead zone', () => {
-    expect(classifyTouch({ x: 900, y: 700 }, null, buttons)).toEqual({ kind: 'fire' });
+  it('with no pads at all, every touch is an aim', () => {
+    expect(classifyTouch({ x: 1700, y: 900 }, [])).toEqual({ kind: 'aim' });
   });
 });
 
@@ -67,7 +53,7 @@ describe('aimAngleFrom', () => {
   });
 });
 
-describe('hold to fire', () => {
+describe('hold to fire (FIRE pad)', () => {
   it('a tap does not fire, a hold does', () => {
     expect(firesOnRelease(FIRE_MIN_HOLD_MS - 1)).toBe(false);
     expect(firesOnRelease(FIRE_MIN_HOLD_MS)).toBe(true);

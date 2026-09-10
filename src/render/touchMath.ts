@@ -16,21 +16,14 @@ export interface HitRect {
   h: number;
 }
 
-/**
- * Radius around the tank on the clock (screen px) inside which a touch is an
- * aim gesture, never a shot. Holding a finger next to your own tank is how you
- * reach for the barrel; firing from there was the mistake people kept making.
- */
-export const TOUCH_DEADZONE = 170;
-
-/** A hold shorter than this is a tap and is ignored — it never fires. */
+/** A hold on the FIRE pad shorter than this is a tap and is ignored — it never fires. */
 export const FIRE_MIN_HOLD_MS = 180;
 
 /** Same ramp as hold-to-charge on the keyboard: from 20, up 60 a second. */
 export const CHARGE_START = 20;
 export const CHARGE_RATE = 60;
 
-export type Gesture = { kind: 'button'; id: string } | { kind: 'aim' } | { kind: 'fire' };
+export type Gesture = { kind: 'button'; id: string } | { kind: 'aim' };
 
 export function hitButton(p: Pt, buttons: readonly HitRect[]): HitRect | null {
   for (const b of buttons) {
@@ -40,17 +33,15 @@ export function hitButton(p: Pt, buttons: readonly HitRect[]): HitRect | null {
 }
 
 /**
- * Decide what a touch is when it lands. Buttons win; then the dead zone around
- * the tank makes it an aim; anything else in the open is a hold-to-fire. The
- * decision is made once, at touch-down, and the gesture keeps that meaning until
- * the finger lifts — so dragging an aim out past the dead zone for a longer
- * lever arm stays an aim.
+ * Decide what a touch is when it lands: a pad, or otherwise an aim. Firing is
+ * the FIRE pad's job alone — the first version also fired on a hold anywhere in
+ * the open, and that was the accident people kept having. The decision is made
+ * once, at touch-down, and holds until the finger lifts.
  */
-export function classifyTouch(p: Pt, tankScreen: Pt | null, buttons: readonly HitRect[], deadZone = TOUCH_DEADZONE): Gesture {
+export function classifyTouch(p: Pt, buttons: readonly HitRect[]): Gesture {
   const b = hitButton(p, buttons);
   if (b) return { kind: 'button', id: b.id };
-  if (tankScreen && Math.hypot(p.x - tankScreen.x, p.y - tankScreen.y) <= deadZone) return { kind: 'aim' };
-  return { kind: 'fire' };
+  return { kind: 'aim' };
 }
 
 /**

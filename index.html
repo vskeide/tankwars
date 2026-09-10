@@ -35,9 +35,12 @@
     </style>
   </head>
   <body>
-    <div id="game"></div>
-    <div id="rotate"><span>⟲</span>TURN YOUR DEVICE<br /><small>TANKWARS plays in landscape</small></div>
-    <button id="fs" type="button" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
+    <!-- The overlays sit inside #game, which is the fullscreen element: anything
+         outside it disappears while fullscreen, and that once hid the way out. -->
+    <div id="game">
+      <div id="rotate"><span>⟲</span>TURN YOUR DEVICE<br /><small>TANKWARS plays in landscape</small></div>
+      <button id="fs" type="button" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

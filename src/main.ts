@@ -21,6 +21,10 @@ const game = new Phaser.Game({
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    // The container goes fullscreen, not a wrapper around the canvas: the
+    // fullscreen button and the rotate overlay live inside it and must stay
+    // visible while fullscreen, or there is no way back out on a phone.
+    fullscreenTarget: 'game',
   },
   // Three pointers: a thumb on a drive pad, another aiming or firing, one spare.
   input: { gamepad: true, activePointers: 3 },

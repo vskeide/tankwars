@@ -124,6 +124,8 @@ export class BattleScene extends Phaser.Scene {
   private placingFor = -2;
   private placeGfx!: Phaser.GameObjects.Graphics;
   private placeConfirmLatch = false;
+  /** A finger (or button) is down on the battlefield, dragging the ghost. */
+  private placeDragging = false;
   private lastPointerX = -1;
   private lastPointerY = -1;
   /** Set by the pointerdown listener; polling isDown() misses a quick click. */
@@ -230,19 +232,32 @@ export class BattleScene extends Phaser.Scene {
     this.placeDecor();
     this.aimGfx = this.add.graphics().setDepth(35);
     this.placeGfx = this.add.graphics().setDepth(36);
-    this.input.on('pointerdown', () => {
+    this.input.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
       if (this.replay && !this.pauseUi) {
         this.endReplay();
         return;
       }
-      this.placeClick = true;
+      // Placement is a drag: pressing picks the ghost up, releasing drops it.
+      if (this.turn?.phase === 'placing' && !this.paused) {
+        this.placeDragging = true;
+        this.placeX = Math.round(ptr.worldX);
+      }
       this.dismissBriefCard();
     });
+    const release = (ptr: Phaser.Input.Pointer) => {
+      if (!this.placeDragging) return;
+      this.placeDragging = false;
+      this.placeX = Math.round(ptr.worldX);
+      this.placeClick = true;
+    };
+    this.input.on('pointerup', release);
+    this.input.on('pointerupoutside', release);
     // Coming back from the shop, the keypress that closed it may never have
     // reported its keyup here. Start the round with nothing held.
     this.events.on(Phaser.Scenes.Events.WAKE, () => {
       this.inputs.clearHeld();
       this.placeClick = false;
+      this.placeDragging = false;
       this.placeConfirmLatch = true;
       this.aimHold.clear();
       this.charge.clear();
@@ -263,7 +278,7 @@ export class BattleScene extends Phaser.Scene {
       this.hud.setStatusVisible(false);
       this.hud.onRackTap(() => this.touch?.queueCycle());
       const drive = this.world.mode.movement ? '   ·   ◄ ► drive' : '';
-      this.touch.setHint(`drag near your tank to aim   ·   hold anywhere else to fire   ·   tap WEAPON to switch${drive}`);
+      this.touch.setHint(`drag anywhere to aim   ·   hold FIRE to shoot   ·   tap WEAPON to switch${drive}`);
     }
 
     for (const t of this.world.tanks) {
@@ -337,9 +352,9 @@ export class BattleScene extends Phaser.Scene {
   private helpLines(): string[] {
     if (this.touch) {
       return [
-        'TOUCH — drag near your tank to aim (the faint ring)',
-        'hold anywhere else, or the FIRE pad, to charge; lift to fire',
-        'a short tap never fires',
+        'TOUCH — drag anywhere that is not a pad to aim',
+        'hold the FIRE pad to charge; lift to fire',
+        'a short tap on FIRE does nothing — only a hold shoots',
         ...(this.world.mode.movement ? ['◄ ► pads drive; they still work while the shot is in the air'] : []),
         'tap WEAPON, or the rack top right, to switch',
         'keyboard still works if you have one · P pause · ESC leave',
@@ -1220,7 +1235,7 @@ export class BattleScene extends Phaser.Scene {
       if (m.phase === 'placing') {
         const t = m.placingTank;
         const left = m.order.filter((i) => !this.world.tanks[i].placed).length;
-        return `Round ${m.round}/${this.setup.rounds} · ${t?.name.toUpperCase() ?? ''} — choose your ground · move the mouse or ←→, ENTER or click to drop · ${left} left · first to drop fires first`;
+        return `Round ${m.round}/${this.setup.rounds} · ${t?.name.toUpperCase() ?? ''} — choose your ground · drag your tank into place and let go (or ←→ and ENTER) · ${left} left · first to drop fires first`;
       }
       if (m.phase === 'countdown') {
         return `Round ${m.round}/${this.setup.rounds} · ${m.currentTank.name.toUpperCase()} first · get ready — ${Math.ceil(m.countdown)}`;
@@ -1272,15 +1287,18 @@ export class BattleScene extends Phaser.Scene {
     if (m.placingIndex !== this.placingFor) {
       this.placingFor = m.placingIndex;
       this.placeClick = false;
+      this.placeDragging = false;
       this.placeConfirmLatch = true;
     }
 
-    // Mouse wins when it has moved; otherwise the arrows nudge, with the same
+    // While dragging, the ghost is under the pointer. A mouse also previews on
+    // hover (a finger cannot hover); otherwise the arrows nudge, with the same
     // slow-start ramp the aim controls use.
     const ptr = this.input.activePointer;
-    if (ptr.x !== this.lastPointerX || ptr.y !== this.lastPointerY) {
-      this.lastPointerX = ptr.x;
-      this.lastPointerY = ptr.y;
+    const hovered = !this.touch && (ptr.x !== this.lastPointerX || ptr.y !== this.lastPointerY);
+    this.lastPointerX = ptr.x;
+    this.lastPointerY = ptr.y;
+    if (this.placeDragging || hovered) {
       this.placeX = Math.round(ptr.worldX);
     } else {
       const left = this.inputs.isDown('ArrowLeft') || this.inputs.isDown('KeyA');
@@ -1390,7 +1408,7 @@ export class BattleScene extends Phaser.Scene {
     const g = this.add.graphics().setScrollFactor(0);
     g.fillStyle(PAL.uiInk, 0.72).fillRect(0, 0, NATIVE_W, NATIVE_H);
     const w = 640;
-    const h = 300;
+    const h = 360;
     const x = NATIVE_W / 2 - w / 2;
     const y = NATIVE_H / 2 - h / 2;
     g.fillStyle(PAL.uiPanel, 0.98).fillRoundedRect(x, y, w, h, 8);
@@ -1414,9 +1432,19 @@ export class BattleScene extends Phaser.Scene {
         .setScrollFactor(0),
     );
     this.pauseButtons = [
-      makeButton(this, NATIVE_W / 2 - 250, y + 160, 230, 64, 'RESUME', () => this.resume(), { fontSize: '22px', depth: 302, fixed: true, colour: PAL.glow }),
-      makeButton(this, NATIVE_W / 2 + 20, y + 160, 230, 64, 'EXIT TO MENU', () => this.exitToMenu(), { fontSize: '22px', depth: 302, fixed: true, colour: PAL.uiDanger }),
+      makeButton(this, NATIVE_W / 2 - 250, y + 150, 230, 64, 'RESUME', () => this.resume(), { fontSize: '22px', depth: 302, fixed: true, colour: PAL.glow }),
+      makeButton(this, NATIVE_W / 2 + 20, y + 150, 230, 64, 'EXIT TO MENU', () => this.exitToMenu(), { fontSize: '22px', depth: 302, fixed: true, colour: PAL.uiDanger }),
     ];
+    // A second way in and out of fullscreen, for anyone who cannot find the
+    // corner button on a small screen.
+    if (this.scale.fullscreen.available) {
+      const fsLabel = () => (this.scale.isFullscreen ? 'EXIT FULLSCREEN' : 'FULLSCREEN');
+      const fsButton = makeButton(this, NATIVE_W / 2 - 250, y + 232, 500, 52, fsLabel(), () => {
+        this.scale.toggleFullscreen();
+        this.time.delayedCall(150, () => fsButton.setLabel(fsLabel()));
+      }, { fontSize: '18px', depth: 302, fixed: true });
+      this.pauseButtons.push(fsButton);
+    }
     this.pauseUi = c;
   }
 

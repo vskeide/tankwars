@@ -253,6 +253,20 @@ drop. `TurnBasedMatch` now has a `'countdown'` phase after placement (random or 
 ignored, big 3 · 2 · 1 banners count it down. `countdown: 0` in the config skips it — the tests
 use that, and `tests/countdown.test.ts` pins the hold itself.
 
+**Second phone pass, same day.** Three things from playing it on glass:
+
+- *No way out of fullscreen.* Phaser fullscreens a wrapper it makes around the canvas, and
+  anything outside that element is not rendered while fullscreen — which included the very
+  button meant to leave it. `#game` is now the fullscreen target and the button and rotate
+  overlay live inside it, so they stay on screen in fullscreen. The pause prompt also grew a
+  FULLSCREEN / EXIT FULLSCREEN button as a second route.
+- *Fire is the FIRE pad only.* Hold-anywhere-to-fire is gone; with a dedicated pad it was just
+  a way to shoot by accident. Anywhere that is not a pad is now an aim surface — drag from
+  wherever you like and the barrel follows — so the dead-zone ring went with it.
+- *Drop placement is a drag.* Press picks the ghost up, drag moves it, release drops it. Before,
+  the first touch committed on the spot. A mouse still previews on hover; a click is a zero-length
+  drag.
+
 Known gaps: the pads are drawn at fixed canvas positions with no safe-area insets, so a phone with
 a large corner radius may clip the drive pads; two-player hotseat on touch is not addressed
 (Arena is off, and turn-based passes one device between players, which works).
