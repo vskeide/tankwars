@@ -9,6 +9,7 @@ import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { playMusic } from '../music';
 import { loadRun, startRun, loadScores } from '../campaignRun';
+import { makeButton } from '../ui';
 
 /**
  * Campaign start: pick a commander and a difficulty. If a run is in progress the
@@ -56,7 +57,13 @@ export class CommanderScene extends Phaser.Scene {
       this.add.text(cx, 312, c.name.toUpperCase(), { fontFamily: 'monospace', fontSize: '22px', color: hex(PAL.uiText) }).setOrigin(0.5, 0);
       this.add.text(cx, 340, c.title, { fontFamily: 'monospace', fontSize: '13px', color: hex(PAL.uiTextDim) }).setOrigin(0.5, 0);
       const hit = this.add.zone(cx, 245, 250, 250).setInteractive({ useHandCursor: true });
-      hit.on('pointerdown', () => { this.sel = i; this.sfx.play('select'); this.refresh(); });
+      hit.on('pointerdown', () => {
+        // Second tap on the chosen commander starts the run.
+        if (this.sel === i) return this.go(false);
+        this.sel = i;
+        this.sfx.play('select');
+        this.refresh();
+      });
     });
 
     // High scores panel
@@ -69,6 +76,8 @@ export class CommanderScene extends Phaser.Scene {
 
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => this.onKey(e));
     this.input.once('pointerdown', () => this.sfx.unlock());
+    makeButton(this, NATIVE_W / 2 - (this.hasRun ? 250 : 120), NATIVE_H - 118, 240, 52, 'START NEW RUN', () => this.go(false), { fontSize: '20px', depth: 12, colour: PAL.glow });
+    if (this.hasRun) makeButton(this, NATIVE_W / 2 + 10, NATIVE_H - 118, 240, 52, 'CONTINUE RUN', () => this.go(true), { fontSize: '20px', depth: 12 });
     playMusic(this, 'menu');
     this.refresh();
   }
@@ -128,12 +137,25 @@ export class CommanderScene extends Phaser.Scene {
     this.dyn.push(this.add.text(NATIVE_W / 2 - 530, py + 52, c.blurb, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText), wordWrap: { width: 1060 } }));
     this.dyn.push(this.add.text(NATIVE_W / 2 - 530, py + 84, perkLines.join('\n'), { fontFamily: 'monospace', fontSize: '14px', color: hex(PAL.uiTextDim), lineSpacing: 6 }));
 
-    const dl = DIFFICULTIES.map((x, i) => (i === this.diff ? `[ ${x.name.toUpperCase()} ]` : `  ${x.name}  `)).join('   ');
-    this.dyn.push(this.add.text(NATIVE_W / 2 - 530, py + 140, `DIFFICULTY  ↑↓   ${dl}`, { fontFamily: 'monospace', fontSize: '16px', color: hex(d.ironman ? PAL.uiDanger : PAL.uiText) }));
+    this.dyn.push(this.add.text(NATIVE_W / 2 - 530, py + 140, 'DIFFICULTY  ↑↓', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }));
+    let dx = NATIVE_W / 2 - 330;
+    DIFFICULTIES.forEach((x, i) => {
+      const on = i === this.diff;
+      const t = this.add
+        .text(dx, py + 140, on ? `[ ${x.name.toUpperCase()} ]` : `  ${x.name}  `, { fontFamily: 'monospace', fontSize: '16px', color: hex(on ? (x.ironman ? PAL.uiDanger : PAL.uiEdge) : PAL.uiText) })
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          this.diff = i;
+          this.sfx.play('cycle');
+          this.refresh();
+        });
+      this.dyn.push(t);
+      dx += t.width + 24;
+    });
     this.dyn.push(this.add.text(NATIVE_W / 2 - 530, py + 168, `${d.blurb}  Score ×${d.scoreMult}`, { fontFamily: 'monospace', fontSize: '14px', color: hex(PAL.uiTextDim) }));
 
     const run = loadRun();
     const cont = this.hasRun && run ? `     C — continue run (${run.commander}, ${run.difficulty}, ${run.levelsCleared} cleared)` : '';
-    this.dyn.push(this.add.text(NATIVE_W / 2, NATIVE_H - 60, `←→ commander   ↑↓ difficulty   ENTER start new run${cont}   ESC back`, { fontFamily: 'monospace', fontSize: '14px', color: hex(PAL.uiTextDim) }).setOrigin(0.5));
+    this.dyn.push(this.add.text(NATIVE_W / 2, NATIVE_H - 50, `←→ commander   ↑↓ difficulty   ENTER start new run${cont}   ESC back   ·   or tap`, { fontFamily: 'monospace', fontSize: '14px', color: hex(PAL.uiTextDim) }).setOrigin(0.5));
   }
 }

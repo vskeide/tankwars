@@ -21,7 +21,9 @@ import { atlasHas, ensureHull, skinForClass, spriteScale } from '../atlas';
 import { CLASS_BARREL, ENEMY_PARTS, ensureTeamTexture, hasParts, partMetrics } from '../parts';
 import { sliceBiome } from '../biomeBackdrop';
 import { playMusic, toggleMusic } from '../music';
-import { settings } from '../settings';
+import { settings, touchActive } from '../settings';
+import { TouchControls } from '../touchControls';
+import { makeButton, type Button } from '../ui';
 import { addScore, clearRun, loadLoadout, loadRun, saveLoadout, saveRun, setSavedLevel } from '../campaignRun';
 import { scoreRun, toHighScore, type RunStats } from '../../core/campaign/score';
 import { ensureTankTextures, hullTextureKey, barrelTextureKey } from '../sprites';
@@ -99,6 +101,12 @@ export class BattleScene extends Phaser.Scene {
   private projViews = new Map<number, ProjView>();
   private crateViews = new Map<number, Phaser.GameObjects.Container>();
   private hazardViews = new Map<number, Phaser.GameObjects.Image>();
+  /** On-screen controls when fingers are driving; null on a keyboard. */
+  private touch: TouchControls | null = null;
+  /** The pause / leave-the-battle prompt. */
+  private pauseUi: Phaser.GameObjects.Container | null = null;
+  private pauseButtons: Button[] = [];
+  private pauseShownAt = 0;
   /** Objects making up the campaign intro card, destroyed when it is dismissed. */
   private briefCard: Phaser.GameObjects.GameObject[] = [];
   private droneViews = new Map<number, Phaser.GameObjects.Image>();
@@ -186,6 +194,9 @@ export class BattleScene extends Phaser.Scene {
     this.prevHeld = new Map();
     this.aimHold = new Map();
     this.paused = false;
+    this.touch = null;
+    this.pauseUi = null;
+    this.pauseButtons = [];
     this.lastRound = 0;
     this.rec = null;
     this.replay = null;
@@ -236,6 +247,14 @@ export class BattleScene extends Phaser.Scene {
     this.hud = new Hud(this, HUD_H);
     this.inputs = new InputRouter(this, 4);
     this.overlay = this.add.container(0, 0).setDepth(200).setVisible(false);
+    if (touchActive()) {
+      this.touch = new TouchControls(this, this.world, { movement: this.world.mode.movement, realTime: !this.turn });
+      // The status line is keyboard hints; the touch layer draws its own.
+      this.hud.setStatusVisible(false);
+      this.hud.onRackTap(() => this.touch?.queueCycle());
+      const drive = this.world.mode.movement ? '   ·   ◄ ► drive' : '';
+      this.touch.setHint(`drag near your tank to aim   ·   hold anywhere else to fire   ·   tap WEAPON to switch${drive}`);
+    }
 
     for (const t of this.world.tanks) {
       this.makeTankView(t);
@@ -259,15 +278,24 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
-    this.input.keyboard!.on('keydown-ESC', () => {
-      if (this.scene.isActive('shop')) this.scene.stop('shop');
-      this.scene.start('menu');
+    // ESC asks before leaving — a mid-match exit used to be one stray key away.
+    this.input.keyboard!.on('keydown-ESC', () => this.togglePause('exit'));
+    this.input.keyboard!.on('keydown-Q', () => {
+      if (this.pauseUi) this.exitToMenu();
     });
     // Both the Phaser sugar and a raw key check: some input paths (gamepad
     // bridges, remote keyboards) deliver a keydown with an empty `code`, which
     // the sugar cannot match.
     this.input.keyboard!.on('keydown-SPACE', () => this.dismissBriefCard());
-    this.input.keyboard!.on('keydown-ENTER', () => this.dismissBriefCard());
+    this.input.keyboard!.on('keydown-ENTER', () => {
+      // The guard stops an ENTER that was already coming (P2's fire key) from
+      // confirming a prompt that opened a frame earlier.
+      if (this.pauseUi) {
+        if (this.time.now - this.pauseShownAt > 300) this.exitToMenu();
+        return;
+      }
+      this.dismissBriefCard();
+    });
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') this.dismissBriefCard();
     });
@@ -277,7 +305,7 @@ export class BattleScene extends Phaser.Scene {
       if (this.turn.phase !== 'aim') return this.hud.showBanner('SAVE WHEN IT IS YOUR SHOT', 1600);
       this.hud.showBanner(saveMatch(this.turn) ? 'MATCH SAVED' : 'SAVE FAILED', 1600);
     });
-    this.input.keyboard!.on('keydown-P', () => (this.paused = !this.paused));
+    this.input.keyboard!.on('keydown-P', () => this.togglePause('pause'));
     this.input.keyboard!.on('keydown-M', () => (this.sfx.muted = !this.sfx.muted));
     this.input.keyboard!.on('keydown-H', () => this.hud.toggleHelp(this.helpLines()));
     this.input.keyboard!.on('keydown-N', () => toggleMusic(this));
@@ -297,6 +325,16 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private helpLines(): string[] {
+    if (this.touch) {
+      return [
+        'TOUCH — drag near your tank to aim (the faint ring)',
+        'hold anywhere else, or the FIRE pad, to charge; lift to fire',
+        'a short tap never fires',
+        ...(this.world.mode.movement ? ['◄ ► pads drive; they still work while the shot is in the air'] : []),
+        'tap WEAPON, or the rack top right, to switch',
+        'keyboard still works if you have one · P pause · ESC leave',
+      ];
+    }
     if (this.turn) {
       const move = this.world.mode.movement ? ['A / D            drive along the ground (uses fuel, refills each turn)'] : [];
       return [
@@ -790,6 +828,7 @@ export class BattleScene extends Phaser.Scene {
   private driveOnlyIntent(): Intent {
     const it = emptyIntent();
     it.moveX = (this.inputs.isDown('KeyD') ? 1 : 0) - (this.inputs.isDown('KeyA') ? 1 : 0);
+    if (this.touch) it.moveX = it.moveX || this.touch.intent().moveX;
     return it;
   }
 
@@ -809,22 +848,31 @@ export class BattleScene extends Phaser.Scene {
     }
     it.aimDelta *= this.aimRamp('t:aim', it.aimDelta !== 0, SIM_DT);
     it.powerDelta *= this.aimRamp('t:pow', it.powerDelta !== 0, SIM_DT);
-    if (settings().chargeFire && this.turn) {
+    // Touch: drive pads and the weapon pad merge in; the barrel angle has already
+    // been written onto the tank by the drag. Fire is always hold-to-charge on
+    // touch, whatever the setting says — there is no key to type a power with.
+    const tc = this.touch?.intent();
+    if (tc) {
+      it.moveX = it.moveX || tc.moveX;
+      if (tc.cycleWeapon) it.cycleWeapon = tc.cycleWeapon;
+    }
+    const held = raw.fireHeld || !!tc?.fireHeld;
+    if ((settings().chargeFire || tc) && this.turn) {
       // Hold to charge: power climbs from 20 while held, release fires.
       const t = this.turn.currentTank;
       const prev = this.prevHeld.get(-1) ?? false;
       let charge = this.charge.get(-1) ?? 0;
-      if (raw.fireHeld) {
+      if (held) {
         charge = Math.min(100, (prev ? charge : 20) + 60 * SIM_DT);
         this.world.setPower(t, charge);
         it.powerDelta = 0;
       } else if (prev) it.fire = true;
       this.charge.set(-1, charge);
-      this.prevHeld.set(-1, raw.fireHeld);
+      this.prevHeld.set(-1, held);
     } else {
       it.fire = raw.fire;
     }
-    it.fireHeld = raw.fireHeld;
+    it.fireHeld = held;
     it.cycleWeapon = raw.cycleWeapon;
     if (it.aimDelta !== 0 && Math.random() < 0.08) this.sfx.play('aim', 0.6);
     if (it.cycleWeapon !== 0) this.sfx.play('cycle');
@@ -836,6 +884,13 @@ export class BattleScene extends Phaser.Scene {
     // A lone human may use any key set (WASD or arrows, Space or Enter).
     const humans = this.world.tanks.filter((t) => !t.isBot).length;
     const raw = humans <= 1 ? this.inputs.sharedIntent() : this.inputs.slotIntent(slot);
+    // The touch layer drives slot 0 (the only human a touch game has).
+    if (this.touch && slot === 0) {
+      const tc = this.touch.intent();
+      raw.moveX = raw.moveX || tc.moveX;
+      raw.fireHeld = raw.fireHeld || tc.fireHeld;
+      if (tc.cycleWeapon) raw.cycleWeapon = tc.cycleWeapon;
+    }
     const it = emptyIntent();
     it.moveX = raw.moveX;
     // Up = raise barrel whichever way the hull faces; slow start, then accelerate.
@@ -861,11 +916,14 @@ export class BattleScene extends Phaser.Scene {
   override update(_time: number, deltaMs: number): void {
     const frameDt = Math.min(0.1, deltaMs / 1000);
     if (this.replay) {
-      this.advanceReplay(frameDt);
+      if (!this.paused) {
+        this.advanceReplay(frameDt);
+        if (this.inputs.isDown('Space') || this.inputs.isDown('Enter')) this.endReplay();
+      }
       this.fx.update(frameDt);
-      if (this.inputs.isDown('Space') || this.inputs.isDown('Enter')) this.endReplay();
       return;
     }
+    this.updateTouch();
     if (this.turn && this.turn.phase === 'aim' && this.rec && !this.rec.killed) this.rec = null;
     if (!this.paused) {
       this.accumulator += frameDt;
@@ -1183,6 +1241,10 @@ export class BattleScene extends Phaser.Scene {
     }
     const t = m.placingTank;
     if (!t) return;
+    if (this.paused) {
+      this.placeClick = false;
+      return;
+    }
     const { min, max } = m.placeBounds();
     if (this.placeX === 0) this.placeX = Math.round((min + max) / 2);
     // New chooser: swallow anything already held or clicked, so the key that
@@ -1243,6 +1305,101 @@ export class BattleScene extends Phaser.Scene {
     } else if (!keyHeld) {
       this.placeConfirmLatch = false;
     }
+  }
+
+  // ---- touch feed --------------------------------------------------------------------
+
+  /** Tell the touch layer whose tank it is moving and whether it may act at all. */
+  private updateTouch(): void {
+    if (!this.touch) return;
+    let tank: Tank | null = null;
+    let phaseOk = false;
+    let aimLocked = false;
+    if (this.turn) {
+      tank = this.turn.currentTank;
+      phaseOk = this.turn.phase === 'aim' || this.turn.phase === 'resolving';
+      aimLocked = this.turn.phase !== 'aim';
+    } else if (this.campaign) {
+      tank = this.world.tanks[this.campaign.playerIndices[0]] ?? null;
+      phaseOk = this.campaign.phase === 'live';
+    }
+    const human = tank && !tank.isBot && tank.alive ? tank : null;
+    const enabled = !!human && phaseOk && !this.paused && !this.overlay.visible && !this.briefCard.length && !this.replay;
+    this.touch.setEnabled(enabled);
+    this.touch.setTarget(enabled ? human : null);
+    this.touch.setAimLocked(aimLocked);
+    this.touch.update();
+  }
+
+  // ---- pause / leave ---------------------------------------------------------------
+
+  /**
+   * ESC and P both land here. On an end-of-match screen there is nothing to
+   * protect, so ESC just leaves; anywhere else it opens the prompt, and a second
+   * press closes it again.
+   */
+  private togglePause(reason: 'pause' | 'exit'): void {
+    if (this.overlay.visible) {
+      if (reason === 'exit') this.exitToMenu();
+      return;
+    }
+    if (this.pauseUi) return this.resume();
+    this.showPause(reason);
+  }
+
+  private showPause(reason: 'pause' | 'exit'): void {
+    this.paused = true;
+    this.pauseShownAt = this.time.now;
+    const c = this.add.container(0, 0).setDepth(300).setScrollFactor(0);
+    const g = this.add.graphics().setScrollFactor(0);
+    g.fillStyle(PAL.uiInk, 0.72).fillRect(0, 0, NATIVE_W, NATIVE_H);
+    const w = 640;
+    const h = 300;
+    const x = NATIVE_W / 2 - w / 2;
+    const y = NATIVE_H / 2 - h / 2;
+    g.fillStyle(PAL.uiPanel, 0.98).fillRoundedRect(x, y, w, h, 8);
+    g.lineStyle(2, reason === 'exit' ? PAL.uiDanger : PAL.uiEdge, 1).strokeRoundedRect(x, y, w, h, 8);
+    c.add(g);
+    const title = reason === 'exit' ? 'LEAVE THE BATTLE?' : 'PAUSED';
+    c.add(this.add.text(NATIVE_W / 2, y + 40, title, { fontFamily: 'monospace', fontSize: '34px', color: hex(reason === 'exit' ? PAL.uiDanger : PAL.uiEdge) }).setOrigin(0.5).setScrollFactor(0));
+    const sub =
+      reason === 'exit'
+        ? this.turn
+          ? 'The match is lost unless you saved it (F2 on your shot).'
+          : 'Progress in this level is lost.'
+        : this.touch
+          ? 'Tap RESUME to carry on.'
+          : 'P or ESC to carry on.';
+    c.add(this.add.text(NATIVE_W / 2, y + 90, sub, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText), align: 'center', wordWrap: { width: w - 80 } }).setOrigin(0.5, 0).setScrollFactor(0));
+    c.add(
+      this.add
+        .text(NATIVE_W / 2, y + h - 34, this.touch ? 'or press ESC / P to resume' : 'ESC / P  resume        ENTER / Q  exit to menu', { fontFamily: 'monospace', fontSize: '13px', color: hex(PAL.uiTextDim) })
+        .setOrigin(0.5)
+        .setScrollFactor(0),
+    );
+    this.pauseButtons = [
+      makeButton(this, NATIVE_W / 2 - 250, y + 160, 230, 64, 'RESUME', () => this.resume(), { fontSize: '22px', depth: 302, fixed: true, colour: PAL.glow }),
+      makeButton(this, NATIVE_W / 2 + 20, y + 160, 230, 64, 'EXIT TO MENU', () => this.exitToMenu(), { fontSize: '22px', depth: 302, fixed: true, colour: PAL.uiDanger }),
+    ];
+    this.pauseUi = c;
+  }
+
+  private resume(): void {
+    if (!this.pauseUi) return;
+    this.pauseUi.destroy(true);
+    this.pauseUi = null;
+    this.pauseButtons.forEach((b) => b.destroy());
+    this.pauseButtons = [];
+    this.paused = false;
+    // Whatever was pressed to resume must not fire, drive or drop a tank.
+    this.inputs.clearHeld();
+    this.placeClick = false;
+    this.placeConfirmLatch = true;
+  }
+
+  private exitToMenu(): void {
+    if (this.scene.isActive('shop')) this.scene.stop('shop');
+    this.scene.start('menu');
   }
 
   private drawAimAssist(): void {
@@ -1382,7 +1539,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private dismissBriefCard(): void {
-    if (!this.briefCard.length) return;
+    if (!this.briefCard.length || this.pauseUi) return;
     this.briefCard.forEach((o) => o.destroy());
     this.briefCard = [];
     this.campaign?.beginFight();

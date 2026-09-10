@@ -16,6 +16,16 @@ port). If you need a browser API in core, you are in the wrong layer.
 
 `src/render/` is Phaser-specific: scenes, sprites, effects, audio, input routing, HUD.
 
+**Input reaches the rules only as an `Intent`.** Keyboard (`inputs.ts`), gamepad and touch
+(`touchControls.ts`) are all producers of the same struct; nothing in `core/` may know which one
+is driving. A new input method is a new producer, never a new code path in a rules layer. Touch
+aim is the one exception in spirit — it writes an absolute angle onto the tank via `world.aim()`
+because a finger position is not a delta — and that still goes through a core method.
+
+**Every screen must be operable by pointer alone.** Keyboard shortcuts are welcome on top, but a
+scene that can only be left with a key traps a touch player (the armoury did exactly that).
+`makeButton()` in `ui.ts` is the standard control.
+
 ## Testing
 
 `npm test` runs the vitest suites in `tests/` (core only — ballistics, terrain collapse,
@@ -42,6 +52,9 @@ rule. `src/render/` is not covered: verify it in the browser.
 | `src/render/savedMatch.ts` | localStorage slot for the saved turn-based match (F2 in battle, CONTINUE in the menu) |
 | `src/render/shopHost.ts` | What `ShopScene` needs from whoever opened it, so the same UI serves the match shop and the campaign armoury |
 | `src/render/screenFx.ts` | Camera post-FX: nuke flash, napalm heat haze, low-HP vignette. Added and removed on demand |
+| `src/render/touchControls.ts` | On-screen touch controls: a third Intent source next to keyboard and gamepad. Drag near the tank to aim, hold elsewhere to fire, pads for drive and weapon |
+| `src/render/touchMath.ts` | Phaser-free gesture rules (dead zone, tap filter, aim angle, charge ramp) — tested in `tests/touch.test.ts` |
+| `src/render/ui.ts` | `makeButton()`: the tappable button every formerly keyboard-only menu uses |
 | `src/core/modes.ts` | The three turn-based modes as data. Add a mode here, not in code |
 | `src/core/weapons.ts`, `tanks.ts` | The armoury and hull roster. Each entry lists which modes it exists in |
 | `src/core/terrain.ts` | Destructible byte-map with dirty-rect tracking; midpoint-displacement generator; six terrain styles |

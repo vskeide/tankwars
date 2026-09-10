@@ -42,6 +42,16 @@ export class Hud {
       .setAlpha(0);
   }
 
+  /** Tapping the weapon rack cycles the weapon — the only rack interaction touch has. */
+  onRackTap(cb: () => void): void {
+    this.rack.setInteractive({ useHandCursor: true }).on('pointerdown', cb);
+  }
+
+  /** Hide the keyboard-hint status line (touch draws its own hints). */
+  setStatusVisible(v: boolean): void {
+    this.status.setVisible(v);
+  }
+
   /** Toggle the controls overlay (H). */
   toggleHelp(lines: string[]): void {
     if (this.help.visible) {

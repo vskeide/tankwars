@@ -12,7 +12,7 @@ import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { buildBackdrop } from '../backdrop';
 import { playMusic, toggleMusic } from '../music';
-import { TANK_SIZES, settings, updateSettings } from '../settings';
+import { TANK_SIZES, TOUCH_OPTIONS, settings, touchActive, updateSettings } from '../settings';
 import { continueMatch, savedMatchInfo } from '../savedMatch';
 
 /** Menu layout grid; the camera zooms it to fill the native canvas. */
@@ -46,7 +46,7 @@ const MODES: ModeOption[] = [
 const DIFFS: Difficulty[] = ['rookie', 'gunner', 'veteran', 'deadeye'];
 const BOT_NAMES = ['Kilo', 'Vex', 'Sable', 'Rook', 'Ember', 'Tarn'];
 
-type Row = 'mode' | 'players' | 'p0' | 'p1' | 'p2' | 'p3' | 'rounds' | 'terrain' | 'placement' | 'size' | 'fire' | 'start' | 'resume';
+type Row = 'mode' | 'players' | 'p0' | 'p1' | 'p2' | 'p3' | 'rounds' | 'terrain' | 'placement' | 'size' | 'fire' | 'touch' | 'start' | 'resume';
 
 export class MenuScene extends Phaser.Scene {
   private setup: BattleSetup = structuredClone(DEFAULT_SETUP);
@@ -60,8 +60,33 @@ export class MenuScene extends Phaser.Scene {
     super('menu');
   }
 
+  /** Modes on offer: Arena is a shared-keyboard mode and has no touch form. */
+  private modeOptions(): ModeOption[] {
+    return touchActive() ? MODES.filter((m) => m.id !== 'arena') : MODES;
+  }
+
+  /** Switch to mode option `i` and make the player list legal for it. */
+  private applyMode(i: number): void {
+    const s = this.setup;
+    const opts = this.modeOptions();
+    this.modeIndex = ((i % opts.length) + opts.length) % opts.length;
+    const m = opts[this.modeIndex];
+    s.kind = m.id === 'arena' ? 'arena' : m.id === 'campaign' ? 'campaign' : 'turn';
+    s.mode = m.id === 'arena' || m.id === 'campaign' ? 'advanced' : m.id;
+    if (m.id === 'campaign') {
+      s.players = s.players.slice(0, 2).map((p, i) => ({ ...p, isBot: false, name: `Player ${i + 1}` }));
+    }
+    // Reset classes to something legal for the mode.
+    const legal = tankClassesForMode(s.mode).map((c) => c.id);
+    s.players.forEach((p) => {
+      if (!legal.includes(p.tankClass)) p.tankClass = legal[0];
+    });
+  }
+
   create(): void {
     this.cameras.main.setZoom(NATIVE_W / LAYOUT_W).centerOn(LAYOUT_W / 2, LAYOUT_H / 2);
+    // A saved Arena choice on a device that cannot play it falls back to Classic.
+    if (touchActive() && this.setup.kind === 'arena') this.applyMode(0);
     // Text is laid out on the 640 grid but rasterised at native resolution.
     this.events.on(Phaser.GameObjects.Events.ADDED_TO_SCENE, (obj: Phaser.GameObjects.GameObject) => {
       if (obj instanceof Phaser.GameObjects.Text) obj.setResolution(NATIVE_W / LAYOUT_W);
@@ -146,6 +171,7 @@ export class MenuScene extends Phaser.Scene {
     if (this.setup.kind === 'turn') r.push('placement');
     r.push('size');
     if (this.setup.kind === 'turn') r.push('fire');
+    r.push('touch');
     r.push('start');
     if (savedMatchInfo()) r.push('resume');
     return r;
@@ -154,19 +180,15 @@ export class MenuScene extends Phaser.Scene {
   private adjust(dir: number): void {
     const s = this.setup;
     switch (this.row) {
-      case 'mode': {
-        this.modeIndex = (this.modeIndex + dir + MODES.length) % MODES.length;
-        const m = MODES[this.modeIndex];
-        s.kind = m.id === 'arena' ? 'arena' : m.id === 'campaign' ? 'campaign' : 'turn';
-        s.mode = m.id === 'arena' || m.id === 'campaign' ? 'advanced' : m.id;
-        if (m.id === 'campaign') {
-          s.players = s.players.slice(0, 2).map((p, i) => ({ ...p, isBot: false, name: `Player ${i + 1}` }));
-        }
-        // Reset classes to something legal for the mode.
-        const legal = tankClassesForMode(s.mode).map((c) => c.id);
-        s.players.forEach((p) => {
-          if (!legal.includes(p.tankClass)) p.tankClass = legal[0];
-        });
+      case 'mode':
+        this.applyMode(this.modeIndex + dir);
+        break;
+      case 'touch': {
+        const i = TOUCH_OPTIONS.indexOf(settings().touch);
+        updateSettings({ touch: TOUCH_OPTIONS[(i + dir + TOUCH_OPTIONS.length) % TOUCH_OPTIONS.length] });
+        // Turning touch on may have removed the mode currently selected.
+        if (touchActive() && s.kind === 'arena') this.applyMode(0);
+        else this.applyMode(this.modeIndex);
         break;
       }
       case 'players': {
@@ -267,11 +289,14 @@ export class MenuScene extends Phaser.Scene {
     const s = this.setup;
     const x0 = 40;
     let y = 58;
+    const touch = touchActive();
+    const rowFont = touch ? '10px' : '9px';
+    const pitch = touch ? 14 : 12;
     const line = (label: string, value: string, row: Row, hint = '') => {
       const active = this.row === row;
       const c = active ? hex(PAL.uiEdge) : hex(PAL.uiText);
-      const t1 = this.add.text(x0, y, (active ? '▶ ' : '  ') + label, { fontFamily: 'monospace', fontSize: '9px', color: c }).setDepth(10);
-      const t2 = this.add.text(x0 + 130, y, value, { fontFamily: 'monospace', fontSize: '9px', color: active ? hex(PAL.uiText) : hex(PAL.uiTextDim) }).setDepth(10);
+      const t1 = this.add.text(x0, y, (active ? '▶ ' : '  ') + label, { fontFamily: 'monospace', fontSize: rowFont, color: c }).setDepth(10);
+      const t2 = this.add.text(x0 + 130, y, value, { fontFamily: 'monospace', fontSize: rowFont, color: active ? hex(PAL.uiText) : hex(PAL.uiTextDim) }).setDepth(10);
       const activate = () => {
         if (row === 'start') this.start();
         else if (row === 'resume') this.resume();
@@ -280,10 +305,10 @@ export class MenuScene extends Phaser.Scene {
       this.clickable(t2, () => { this.row = row; this.col = 0; if (row === 'start' || row === 'resume') activate(); else this.adjust(1); }, () => { this.row = row; this.adjust(-1); });
       this.texts.push(t1, t2);
       if (hint && active) this.texts.push(this.add.text(x0 + 130, y + 10, hint, { fontFamily: 'monospace', fontSize: '7px', color: hex(PAL.uiTextDim), wordWrap: { width: 300 } }).setDepth(10));
-      y += hint && active ? 12 + Math.ceil(hint.length / 60) * 9 : 12;
+      y += hint && active ? pitch + Math.ceil(hint.length / 60) * 9 : pitch;
     };
 
-    const m = MODES[this.modeIndex];
+    const m = this.modeOptions()[this.modeIndex];
     line('MODE', `‹ ${m.name.toUpperCase()} ›  ${m.tagline}`, 'mode', m.description);
     line('PLAYERS', `‹ ${s.players.length} ›`, 'players');
     s.players.forEach((p, i) => {
@@ -293,8 +318,8 @@ export class MenuScene extends Phaser.Scene {
       const f = (k: number, str: string) => (this.row === `p${i}` && this.col === k ? `[${str}]` : ` ${str} `);
       const keys = s.kind === 'arena' && !p.isBot ? `  keys: ${KEY_SETS[i]?.name ?? '-'}` : '';
       const val = `${f(0, p.isBot ? 'BOT' : 'HUMAN')} ${p.isBot ? f(1, p.difficulty.toUpperCase()) : '          '} ${showClass ? f(2, (cls?.name ?? '').toUpperCase()) : ''}${keys}`;
-      const t = this.add.text(x0 + 130, y, val, { fontFamily: 'monospace', fontSize: '9px', color: hex(PAL.uiText) }).setDepth(10);
-      const l = this.add.text(x0, y, (this.row === `p${i}` ? '▶ ' : '  ') + `■ ${p.name}`, { fontFamily: 'monospace', fontSize: '9px', color: hex(team.lit) }).setDepth(10);
+      const t = this.add.text(x0 + 130, y, val, { fontFamily: 'monospace', fontSize: rowFont, color: hex(PAL.uiText) }).setDepth(10);
+      const l = this.add.text(x0, y, (this.row === `p${i}` ? '▶ ' : '  ') + `■ ${p.name}`, { fontFamily: 'monospace', fontSize: rowFont, color: hex(team.lit) }).setDepth(10);
       const rowId = `p${i}` as Row;
       this.clickable(l, () => { this.row = rowId; this.col = 0; });
       // Click on a field: each field is roughly a third of the value text.
@@ -306,7 +331,7 @@ export class MenuScene extends Phaser.Scene {
         this.redraw();
       });
       this.texts.push(t, l);
-      y += 12;
+      y += pitch;
     });
     if (s.kind !== 'campaign') {
       line('ROUNDS', `‹ ${s.rounds} ›`, 'rounds');
@@ -328,6 +353,12 @@ export class MenuScene extends Phaser.Scene {
     const size = TANK_SIZES.find((t) => t.scale === settings().tankScale) ?? TANK_SIZES[2];
     line('TANK SIZE', `‹ ${size.label} ›`, 'size');
     if (s.kind === 'turn') line('FIRE', `‹ ${settings().chargeFire ? 'HOLD SPACE TO CHARGE' : 'SET POWER, TAP SPACE'} ›`, 'fire');
+    line(
+      'TOUCH CONTROLS',
+      `‹ ${settings().touch.toUpperCase()}${settings().touch === 'auto' ? (touchActive() ? ' (on)' : ' (off)') : ''} ›`,
+      'touch',
+      'On-screen pads for fingers: drag near your tank to aim, hold anywhere to fire. AUTO follows the device; ON lets you try it with a mouse.',
+    );
     y += 6;
     line(s.kind === 'campaign' ? 'OPEN CAMPAIGN MAP' : 'START BATTLE', this.row === 'start' ? 'press ENTER' : '', 'start');
     const saved = savedMatchInfo();

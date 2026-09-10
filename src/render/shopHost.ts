@@ -11,6 +11,7 @@ import { buyWeapon, hullUpgradeCost, upgradeHull } from '../core/shop';
 import { gameMode } from '../core/modes';
 import { World as WorldImpl } from '../core/world';
 import { tankClassById } from '../core/tanks';
+import { commanderById } from '../core/campaign/commanders';
 import { loadLoadout, saveLoadout } from './campaignRun';
 import type { TurnBasedMatch } from '../core/rules/turnBased';
 
@@ -50,10 +51,14 @@ export function turnBasedHost(match: TurnBasedMatch): ShopHost {
  * World here, so the loadout is loaded onto a scratch tank, the shop mutates
  * that, and it is written back on the way out. The scratch World never gets
  * terrain — nothing in the shop path touches it.
+ *
+ * Takes the *commander* id the campaign setup carries and resolves the hull
+ * itself: the first version took a class id, every caller passed a commander,
+ * and the armoury threw on open.
  */
-export function campaignHost(commanderClassId: string): ShopHost {
+export function campaignHost(commanderId: string): ShopHost {
   const world: World = new WorldImpl({ width: 1, height: 1, mode: gameMode('advanced'), seed: 1 });
-  const cls = tankClassById(commanderClassId);
+  const cls = tankClassById(commanderById(commanderId).cls);
   const loadout = loadLoadout();
   const tank = world.addTank({
     index: 0,

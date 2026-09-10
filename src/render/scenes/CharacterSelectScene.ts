@@ -9,6 +9,7 @@ import type { BattleSetup } from '../setup';
 import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
 import { playMusic } from '../music';
+import { touchActive } from '../settings';
 
 /** One line for a hull's passive, in the same words the shop and HUD use. */
 function describePerk(cls: ReturnType<typeof tankClassById>): string {
@@ -100,6 +101,13 @@ export class CharacterSelectScene extends Phaser.Scene {
         this.gridSel = (this.gridSel + 1) % COMMANDERS.length;
         this.sfx.play('tick');
       } else if (isEnter || isSpace) {
+        if (touchActive()) {
+          // No keyboard to type a name on: the character's own name will do.
+          this.sfx.play('select');
+          this.applyPick(this.humanSlots[this.turn], this.gridSel, '');
+          this.advance();
+          return;
+        }
         this.nameBuf = this.currentPlayer().name;
         this.mode = 'name';
         this.sfx.play('select');
@@ -231,6 +239,12 @@ export class CharacterSelectScene extends Phaser.Scene {
       hit.on('pointerdown', () => {
         this.sfx.play('tick');
         this.gridSel = i;
+        if (this.mode === 'grid' && touchActive()) {
+          // Tap picks outright; the name step needs a keyboard.
+          this.applyPick(this.humanSlots[this.turn], i, '');
+          this.advance();
+          return;
+        }
         if (this.mode === 'grid') {
           this.nameBuf = p.name;
           this.mode = 'name';
@@ -258,7 +272,9 @@ export class CharacterSelectScene extends Phaser.Scene {
 
     const hint =
       this.mode === 'grid'
-        ? '←→ pick   ENTER confirm & name   ESC skip (auto-assign)'
+        ? touchActive()
+          ? 'tap a portrait to pick — you play under that character’s name'
+          : '←→ pick   ENTER confirm & name   ESC skip (auto-assign)'
         : 'type a name   ENTER confirm   BACKSPACE edit   ESC back to grid';
     this.dyn.push(this.add.text(NATIVE_W / 2, NATIVE_H - 40, hint, { fontFamily: 'monospace', fontSize: '15px', color: hex(PAL.uiTextDim) }).setOrigin(0.5));
     this.dyn.push(

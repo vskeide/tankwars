@@ -9,6 +9,7 @@ import { atlasHas } from '../atlas';
 import { playMusic } from '../music';
 import { loadLoadout, loadRun, savedLevelId } from '../campaignRun';
 import { campaignHost } from '../shopHost';
+import { makeButton } from '../ui';
 import { commanderById } from '../../core/campaign/commanders';
 import { difficultyById } from '../../core/campaign/difficulty';
 
@@ -65,11 +66,12 @@ export class CampaignMapScene extends Phaser.Scene {
       const label = this.add.text(0, -34, String(i + 1), { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiText), stroke: hex(PAL.uiInk), strokeThickness: 4 }).setOrigin(0.5);
       const cont = this.add.container(p.x, p.y, [g, label]).setDepth(5);
       cont.setSize(60, 60).setInteractive({ useHandCursor: true }).on('pointerdown', () => {
-        if (i <= this.unlocked) {
-          this.sel = i;
-          this.sfx.play('select');
-          this.refresh();
-        } else this.sfx.play('back');
+        if (i > this.unlocked) return this.sfx.play('back');
+        // A second tap on the selected node deploys, so a finger never needs ENTER.
+        if (this.sel === i) return this.deploy();
+        this.sel = i;
+        this.sfx.play('select');
+        this.refresh();
       });
       this.markers.push(cont);
     });
@@ -79,7 +81,9 @@ export class CampaignMapScene extends Phaser.Scene {
     panel.lineStyle(2, PAL.uiEdge, 0.9).strokeRoundedRect(NATIVE_W / 2 - 420, NATIVE_H - 150, 840, 118, 6);
     this.info = this.add.text(NATIVE_W / 2, NATIVE_H - 132, '', { fontFamily: 'monospace', fontSize: '22px', color: hex(PAL.uiEdge) }).setOrigin(0.5, 0).setDepth(9);
     this.brief = this.add.text(NATIVE_W / 2, NATIVE_H - 98, '', { fontFamily: 'monospace', fontSize: '15px', color: hex(PAL.uiText), align: 'center', wordWrap: { width: 780 } }).setOrigin(0.5, 0).setDepth(9);
-    this.add.text(NATIVE_W / 2, NATIVE_H - 46, '←→ choose   ENTER deploy   ESC back', { fontFamily: 'monospace', fontSize: '13px', color: hex(PAL.uiTextDim) }).setOrigin(0.5, 0).setDepth(9);
+    this.add.text(NATIVE_W / 2, NATIVE_H - 46, '←→ choose   ENTER deploy   B armoury   ESC back   ·   or tap', { fontFamily: 'monospace', fontSize: '13px', color: hex(PAL.uiTextDim) }).setOrigin(0.5, 0).setDepth(9);
+    makeButton(this, NATIVE_W / 2 - 230, NATIVE_H - 212, 220, 52, 'DEPLOY', () => this.deploy(), { fontSize: '20px', depth: 12, colour: PAL.glow });
+    makeButton(this, NATIVE_W / 2 + 10, NATIVE_H - 212, 220, 52, 'ARMOURY', () => this.openArmoury(), { fontSize: '20px', depth: 12 });
     this.add.text(NATIVE_W / 2, 24, 'C A M P A I G N', { fontFamily: 'monospace', fontSize: '28px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 6 }).setOrigin(0.5, 0).setDepth(9);
 
     // Commander portrait and run summary.
@@ -107,6 +111,20 @@ export class CampaignMapScene extends Phaser.Scene {
   private nodePos(i: number): { x: number; y: number } {
     const n = MAP_NODES[i];
     return { x: Math.round(n.x * NATIVE_W), y: Math.round(n.y * NATIVE_H) };
+  }
+
+  private deploy(): void {
+    this.sfx.unlock();
+    this.sfx.play('select');
+    // (commanderId / difficultyId ride along in the setup)
+    this.scene.start('battle', { ...this.setup, kind: 'campaign', levelId: LEVELS[this.sel].id, seed: (Date.now() ^ 0x5f3759df) & 0x7fffffff });
+  }
+
+  private openArmoury(): void {
+    this.sfx.unlock();
+    this.sfx.play('select');
+    this.scene.launch('shop', { host: campaignHost(this.setup.commanderId ?? 'rook') });
+    this.scene.sleep();
   }
 
   /** Credits and bought hull waiting to be spent, shown under the map. */
@@ -138,15 +156,9 @@ export class CampaignMapScene extends Phaser.Scene {
         break;
       case 'Enter':
       case 'Space':
-        this.sfx.play('select');
-        this.scene.start('battle', { ...this.setup, kind: 'campaign', levelId: LEVELS[this.sel].id, seed: (Date.now() ^ 0x5f3759df) & 0x7fffffff });
-        // (commanderId / difficultyId ride along in the setup)
-        return;
+        return this.deploy();
       case 'KeyB':
-        this.sfx.play('select');
-        this.scene.launch('shop', { host: campaignHost(this.setup.commanderId ?? 'rook') });
-        this.scene.sleep();
-        return;
+        return this.openArmoury();
       case 'Escape':
         this.scene.start('menu');
         return;

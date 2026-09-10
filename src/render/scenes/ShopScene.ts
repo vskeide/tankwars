@@ -9,6 +9,7 @@ import type { TurnBasedMatch } from '../../core/rules/turnBased';
 import { NATIVE_H, NATIVE_W } from '../config';
 import { Sfx } from '../audio';
 import { atlasHas } from '../atlas';
+import { makeButton, type Button } from '../ui';
 
 /** Menu layout grid; the camera zooms it to fill the native canvas. */
 const LAYOUT_W = 640;
@@ -25,6 +26,7 @@ export class ShopScene extends Phaser.Scene {
   private texts: Phaser.GameObjects.Text[] = [];
   /** Rebuilt every redraw alongside the text: rack icons and the blast preview. */
   private art: Phaser.GameObjects.GameObject[] = [];
+  private buttons: Button[] = [];
   private sfx = new Sfx();
 
   constructor() {
@@ -51,8 +53,42 @@ export class ShopScene extends Phaser.Scene {
       else this.queue.push(i);
     });
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => this.onKey(e));
-    if (this.queue.length === 0) this.finish();
-    else this.redraw();
+    if (this.queue.length === 0) return this.finish();
+    // Pointer path, so the armoury works without a keyboard. Rows select on tap
+    // (and buy on a second tap); these do the rest.
+    const res = NATIVE_W / LAYOUT_W;
+    const by = LAYOUT_H - 46;
+    this.buttons = [
+      makeButton(this, 30, by, 96, 22, 'BUY', () => this.buySelected(), { fontSize: '9px', resolution: res }),
+      makeButton(this, 136, by, 150, 22, 'HULL +10 HP', () => this.reinforce(), { fontSize: '9px', resolution: res }),
+      makeButton(this, 296, by, 96, 22, 'DONE', () => this.nextShopper(), { fontSize: '9px', resolution: res, colour: PAL.glow }),
+    ];
+    this.redraw();
+  }
+
+  private buySelected(): void {
+    this.sfx.unlock();
+    this.sfx.play(this.host.buy(this.tank, this.items()[this.sel].id) ? 'select' : 'back');
+    this.redraw();
+  }
+
+  private reinforce(): void {
+    this.sfx.unlock();
+    this.sfx.play(this.host.upgradeHull(this.tank) ? 'crate' : 'back');
+    this.redraw();
+  }
+
+  private nextShopper(): void {
+    this.sfx.unlock();
+    this.queue.shift();
+    this.sel = 0;
+    this.sfx.play('select');
+    if (this.queue.length === 0) {
+      this.buttons.forEach((b) => b.destroy());
+      this.buttons = [];
+      return this.finish();
+    }
+    this.redraw();
   }
 
   private get tank() {
@@ -78,19 +114,13 @@ export class ShopScene extends Phaser.Scene {
         this.sfx.play('tick');
         break;
       case 'Enter':
-        this.sfx.play(this.host.buy(this.tank, items[this.sel].id) ? 'select' : 'back');
-        break;
+        return this.buySelected();
       case 'KeyR':
-        this.sfx.play(this.host.upgradeHull(this.tank) ? 'crate' : 'back');
-        break;
+        return this.reinforce();
       case 'Space':
       case 'Escape':
         e.preventDefault();
-        this.queue.shift();
-        this.sel = 0;
-        this.sfx.play('select');
-        if (this.queue.length === 0) return this.finish();
-        break;
+        return this.nextShopper();
       default:
         return;
     }
@@ -126,17 +156,29 @@ export class ShopScene extends Phaser.Scene {
       const active = i === this.sel;
       const afford = t.credits >= w.cost;
       const c = active ? hex(PAL.uiEdge) : afford ? hex(PAL.uiText) : hex(PAL.uiTextDim);
-      add(30, y, `${active ? '▶' : ' '}     ${w.name.padEnd(16)} ${String(w.cost).padStart(5)} cr  ×${w.ammoPerBuy}   owned ${have < 0 ? '∞' : have}`, c);
+      const row = add(30, y, `${active ? '▶' : ' '}     ${w.name.padEnd(16)} ${String(w.cost).padStart(5)} cr  ×${w.ammoPerBuy}   owned ${have < 0 ? '∞' : have}`, c);
+      row.setInteractive({ useHandCursor: true }).on('pointerdown', () => {
+        this.sfx.unlock();
+        if (this.sel === i) return this.buySelected();
+        this.sel = i;
+        this.sfx.play('tick');
+        this.redraw();
+      });
       const icon = `icon.${w.id}`;
       if (atlasHas(icon)) {
         const img = this.add.image(46, y + 5, icon).setOrigin(0.5).setDisplaySize(11, 11).setAlpha(afford ? 1 : 0.4);
         this.art.push(img);
       }
-      if (active) add(30, y + 10, `      ${w.blurb}   dmg ${w.damage}  radius ${w.radius}`, hex(PAL.uiTextDim), '7px');
+      if (active) {
+        // The blurb is part of the selected row: a second tap anywhere on it buys.
+        add(30, y + 10, `      ${w.blurb}   dmg ${w.damage}  radius ${w.radius}`, hex(PAL.uiTextDim), '7px')
+          .setInteractive({ useHandCursor: true })
+          .on('pointerdown', () => this.buySelected());
+      }
       y += active ? 22 : 12;
     });
     this.drawBlastPreview(items[this.sel]);
-    add(LAYOUT_W / 2 - 150, LAYOUT_H - 16, '↑↓ select   ENTER buy   R reinforce +10hp   SPACE done', hex(PAL.uiTextDim), '8px');
+    add(LAYOUT_W / 2 - 150, LAYOUT_H - 16, '↑↓ select   ENTER buy   R reinforce +10hp   SPACE done   ·   or tap', hex(PAL.uiTextDim), '8px');
   }
 
   /**

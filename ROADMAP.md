@@ -190,6 +190,51 @@ Five changes off the back of playing it:
   every tilt and facing; `tests/muzzle.test.ts` pins it, including a test that fails if the
   old unrotated geometry comes back.
 
+## Done 2026-09-10 (touch, pause, exit prompt)
+
+**Touch controls** — not a separate mode: a third Intent source next to keyboard and gamepad
+(`touchControls.ts`), so the rules layers and the 111 core tests are untouched. Decisions taken:
+
+- **Auto-detected, with an override.** `settings.touch` is AUTO / ON / OFF; AUTO follows
+  `maxTouchPoints` + `(pointer: coarse)`. ON is how the layout gets tested with a mouse.
+- **Direct manipulation, not a virtual gamepad.** Touch inside the faint ring round your tank and
+  drag: the barrel follows the finger (`aimAngleFrom`), and the drag may leave the ring for a
+  longer lever arm because the gesture is classified once, at touch-down. Hold anywhere else, or
+  the FIRE pad, to charge; lift to fire. **A touch that starts inside the ring can never fire** —
+  that dead zone is the rule asked for, applied to the FIRE pad too in case a tank is parked
+  under it. A hold under 180 ms is a tap and is ignored, so a stray touch cannot spend a turn.
+  Fire on touch is always hold-to-charge, whatever the FIRE setting says.
+- **Drive pads** only in modes with fuel, and they keep working while the shot is in the air.
+  WEAPON pad or a tap on the HUD rack cycles.
+- **No Arena on touch** — a shared-keyboard mode has no finger equivalent, so it is not offered.
+- **Landscape only.** A DOM overlay asks for a turn in portrait; first tap requests fullscreen and
+  (Android only — iOS Safari has neither) an orientation lock.
+- **No trajectory preview on touch.** Aim is harder with a finger; it stays off by design.
+- **Name entry skipped on touch.** A tap on a portrait picks it and you play under that character's
+  name; there is no keyboard to type on.
+- **Every menu is tappable now** (all devices): the armoury has BUY / HULL / DONE and tap-to-select
+  rows (second tap buys); the campaign map has DEPLOY / ARMOURY and a second tap on a node deploys;
+  the commander screen has tappable difficulty and START / CONTINUE. The armoury was the hard
+  blocker — it had no pointer path at all, so a touch player was trapped in it.
+- **Big readouts** (angle, power, wind) drawn over the sky, since the 44 px HUD strip is illegible
+  at phone scale; the keyboard status line is hidden on touch.
+
+**Pause and exit prompt (all devices)** — ESC no longer leaves the battle outright. It opens a
+prompt (LEAVE THE BATTLE?) with RESUME and EXIT TO MENU; ESC or P again resumes, ENTER or Q
+confirms, and ENTER is ignored for 300 ms after the prompt opens so a fire key already on its way
+down cannot confirm it. P opens the same overlay titled PAUSED. Pausing freezes the sim and the
+replay, hides the touch pads, and resuming clears every held key so nothing fires or drops a tank.
+On an end-of-match screen ESC still leaves directly — there is nothing left to protect.
+
+Found while verifying the taps: **the campaign armoury had never opened.** `campaignHost()` took a
+hull class id, every caller handed it the commander id, and it threw `Unknown tank class: grimm`
+on both the B key and the new button. It now takes the commander id and resolves the hull itself;
+`tests/shopHost.test.ts` pins it for every commander.
+
+Known gaps: the pads are drawn at fixed canvas positions with no safe-area insets, so a phone with
+a large corner radius may clip the drive pads; two-player hotseat on touch is not addressed
+(Arena is off, and turn-based passes one device between players, which works).
+
 ## Suggested order
 
 1 → 3 → 2 (commander, difficulty, score: one coherent campaign feature), then 11, 13, 14 (feel), 26 + 27 (UI kit), 5 + 6 (Hive boss, defences), 31 (deploy so friends can play), 22 (gamepads), 23 last.

@@ -2,19 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>TANKWARS</title>
     <style>
       html, body {
         margin: 0; padding: 0; height: 100%; background: #12070c;
         overflow: hidden; font-family: monospace;
+        /* Fingers drive the canvas: no pinch zoom, double-tap zoom, or pull to refresh. */
+        touch-action: none; -webkit-user-select: none; user-select: none;
+        overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
       }
       #game { width: 100vw; height: 100vh; }
-      canvas { image-rendering: pixelated; display: block; }
+      canvas { image-rendering: pixelated; display: block; touch-action: none; }
+      /* Shown by main.ts on a touch device held in portrait. */
+      #rotate {
+        display: none; position: fixed; inset: 0; z-index: 10;
+        background: #12070c; color: #f0d9a8;
+        flex-direction: column; align-items: center; justify-content: center;
+        text-align: center; font-size: 22px; letter-spacing: 0.1em; padding: 24px;
+      }
+      #rotate span { font-size: 64px; margin-bottom: 16px; }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <div id="rotate"><span>⟲</span>TURN YOUR DEVICE<br /><small>TANKWARS plays in landscape</small></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
