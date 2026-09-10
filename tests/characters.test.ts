@@ -22,6 +22,7 @@ function config(overrides: Partial<TurnBasedConfig> = {}): TurnBasedConfig {
     height: MAP_H,
     terrainStyle: 'basin',
     placement: 'random',
+    countdown: 0,
     ...overrides,
   };
 }

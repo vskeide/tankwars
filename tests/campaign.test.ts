@@ -16,6 +16,7 @@ function level(levelId: string): CampaignLevel {
     height: MAP_H,
     commanderId: 'rook',
     difficultyId: 'soldier',
+    countdown: 0,
   });
 }
 

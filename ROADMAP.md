@@ -231,6 +231,28 @@ hull class id, every caller handed it the commander id, and it threw `Unknown ta
 on both the B key and the new button. It now takes the commander id and resolves the hull itself;
 `tests/shopHost.test.ts` pins it for every commander.
 
+**Regression, fixed the same day:** the pause screen gated the killing-shot replay on `paused` —
+but `startReplay()` sets `paused` itself to freeze the world during playback, so every replay
+froze solid at frame one and the round never ended. On desktop the only way out was ESC into the
+new prompt; on touch there was none. The replay now waits only on the pause *menu*, a tap skips
+it, the results and campaign-end screens have buttons, and the touch layer has a MENU pad so the
+leave prompt is always reachable. Lesson: `paused` was doing two jobs; the menu has its own flag
+(`pauseUi`).
+
+**Fullscreen from anywhere.** The F key only existed in battle and only on a keyboard, and the
+auto-fullscreen on the first tap was one-way. Now a single DOM button in the top-right corner
+(`#fs`, wired in `main.ts`) toggles fullscreen on every screen, on any device, and hides itself
+where the browser cannot do it — iPhone Safari has no element fullscreen at all, so there the
+site's "open in its own window" link is the fallback. The HUD wind gauge and the touch MENU pad
+moved over to leave that corner clear.
+
+**Three-second countdown before the first shot.** Rounds used to open with a bot firing the
+instant the tanks were down, or a human firing by accident with a finger still resting from the
+drop. `TurnBasedMatch` now has a `'countdown'` phase after placement (random or drop) and
+`CampaignLevel` one after the briefing closes: aim and power may be set, fire and drive are
+ignored, big 3 · 2 · 1 banners count it down. `countdown: 0` in the config skips it — the tests
+use that, and `tests/countdown.test.ts` pins the hold itself.
+
 Known gaps: the pads are drawn at fixed canvas positions with no safe-area insets, so a phone with
 a large corner radius may clip the drive pads; two-player hotseat on touch is not addressed
 (Arena is off, and turn-based passes one device between players, which works).

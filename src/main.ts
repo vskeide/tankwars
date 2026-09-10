@@ -47,17 +47,31 @@ window.addEventListener('resize', checkOrientation);
 window.addEventListener('orientationchange', checkOrientation);
 checkOrientation();
 
-// Fullscreen needs a user gesture, and orientation lock only works in fullscreen
-// (and only on Android — iOS Safari has neither). Both are best-effort. It runs on
-// pointerUP, not down: going fullscreen reflows the canvas, and doing that in the
-// middle of the very first tap moved the button out from under the finger.
-let fullscreenTried = false;
-game.canvas.addEventListener('pointerup', () => {
-  if (fullscreenTried || !touchActive()) return;
-  fullscreenTried = true;
-  try {
-    if (!game.scale.isFullscreen) game.scale.startFullscreen();
-  } catch { /* not allowed here; the F key and the page link remain */ }
-  const so = (screen as { orientation?: { lock?: (o: string) => Promise<void> } }).orientation;
-  so?.lock?.('landscape').catch(() => { /* unsupported or not fullscreen */ });
-}, { passive: true });
+// ---- fullscreen: one button, every screen ------------------------------------
+// The F key exists only in battle and only on a keyboard; on a phone this button
+// is the way in and out, and it works on any scene because it lives in the page
+// rather than in Phaser. Hidden where the browser cannot do it: iPhone Safari has
+// no element fullscreen at all, and the site's "open in its own window" link is
+// the fallback there. Orientation lock needs fullscreen and only Android has it.
+const fsButton = document.getElementById('fs') as HTMLButtonElement | null;
+if (fsButton && game.scale.fullscreen.available) {
+  fsButton.style.display = 'block';
+  const paint = () => {
+    fsButton.textContent = game.scale.isFullscreen ? '⤡' : '⛶';
+    fsButton.title = game.scale.isFullscreen ? 'Exit fullscreen' : 'Fullscreen';
+  };
+  fsButton.addEventListener('click', () => {
+    if (game.scale.isFullscreen) {
+      game.scale.stopFullscreen();
+      return;
+    }
+    game.scale.startFullscreen();
+    if (touchActive()) {
+      const so = (screen as { orientation?: { lock?: (o: string) => Promise<void> } }).orientation;
+      so?.lock?.('landscape').catch(() => { /* unsupported or refused */ });
+    }
+  });
+  game.scale.on(Phaser.Scale.Events.ENTER_FULLSCREEN, paint);
+  game.scale.on(Phaser.Scale.Events.LEAVE_FULLSCREEN, paint);
+  paint();
+}

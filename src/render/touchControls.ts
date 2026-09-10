@@ -56,7 +56,7 @@ export class TouchControls {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly world: World,
-    private readonly opts: { movement: boolean; realTime: boolean },
+    private readonly opts: { movement: boolean; realTime: boolean; onMenu: () => void },
   ) {
     // Two extra pointers: drive with one thumb, aim or fire with the other.
     scene.input.addPointer(2);
@@ -70,12 +70,15 @@ export class TouchControls {
     }
     this.buttons.push({ id: 'weapon', x: NATIVE_W / 2 - 170, y: bottom - 100, w: 340, h: 100 });
     this.buttons.push({ id: 'fire', x: NATIVE_W - 70 - 220, y: bottom - 220, w: 220, h: 220 });
+    // Without a keyboard this is the only way to reach the pause / leave prompt.
+    // Sits under the fullscreen button the page draws in the corner.
+    this.buttons.push({ id: 'menu', x: NATIVE_W - 40 - 170, y: HUD_H + 100, w: 170, h: 56 });
 
     this.gfx = scene.add.graphics().setDepth(DEPTH).setScrollFactor(0);
     this.dyn = scene.add.graphics().setDepth(DEPTH + 1).setScrollFactor(0);
     for (const b of this.buttons) {
-      const text = b.id === 'left' ? '◄' : b.id === 'right' ? '►' : b.id === 'fire' ? 'FIRE\nhold' : 'WEAPON';
-      const size = b.id === 'weapon' ? '22px' : '40px';
+      const text = b.id === 'left' ? '◄' : b.id === 'right' ? '►' : b.id === 'fire' ? 'FIRE\nhold' : b.id === 'menu' ? '▌▌ MENU' : 'WEAPON';
+      const size = b.id === 'weapon' || b.id === 'menu' ? '22px' : '40px';
       const t = scene.add
         .text(b.x + b.w / 2, b.y + b.h / 2, text, { fontFamily: FONT, fontSize: size, color: hex(PAL.uiText), align: 'center' })
         .setOrigin(0.5)
@@ -89,7 +92,7 @@ export class TouchControls {
       .setDepth(DEPTH + 2)
       .setScrollFactor(0);
     this.wind = scene.add
-      .text(NATIVE_W - 40, HUD_H + 18, '', { fontFamily: FONT, fontSize: '34px', color: hex(PAL.uiText), stroke: hex(PAL.uiInk), strokeThickness: 6 })
+      .text(NATIVE_W - 130, HUD_H + 18, '', { fontFamily: FONT, fontSize: '34px', color: hex(PAL.uiText), stroke: hex(PAL.uiInk), strokeThickness: 6 })
       .setOrigin(1, 0)
       .setDepth(DEPTH + 2)
       .setScrollFactor(0);
@@ -229,6 +232,11 @@ export class TouchControls {
     if (g.kind === 'button' && g.id === 'weapon') {
       this.cycleQueued = 1;
       this.touches.set(p.id, { gesture: g, startedAt: this.scene.time.now, at });
+      return;
+    }
+    if (g.kind === 'button' && g.id === 'menu') {
+      // Not tracked as a touch: the prompt disables this layer on its next frame.
+      this.opts.onMenu();
       return;
     }
     this.touches.set(p.id, { gesture: g, startedAt: this.scene.time.now, at });

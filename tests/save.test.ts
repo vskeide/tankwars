@@ -22,6 +22,7 @@ function config(overrides: Partial<TurnBasedConfig> = {}): TurnBasedConfig {
     terrainStyle: 'dunes',
     // Random placement, so the constructor finishes the round setup by itself.
     placement: 'random',
+    countdown: 0,
     ...overrides,
   };
 }

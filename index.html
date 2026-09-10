@@ -22,11 +22,22 @@
         text-align: center; font-size: 22px; letter-spacing: 0.1em; padding: 24px;
       }
       #rotate span { font-size: 64px; margin-bottom: 16px; }
+      /* Fullscreen in and out, from any screen. Shown by main.ts where the browser can do it. */
+      #fs {
+        display: none; position: fixed; z-index: 20;
+        top: calc(env(safe-area-inset-top, 0px) + 6px);
+        right: calc(env(safe-area-inset-right, 0px) + 6px);
+        width: 44px; height: 44px; padding: 0; border-radius: 8px; cursor: pointer;
+        border: 1px solid rgba(240, 217, 168, 0.55); background: rgba(18, 7, 12, 0.72); color: #f0d9a8;
+        font: 22px/42px monospace; text-align: center; touch-action: manipulation;
+      }
+      #fs:active { background: rgba(240, 217, 168, 0.25); }
     </style>
   </head>
   <body>
     <div id="game"></div>
     <div id="rotate"><span>⟲</span>TURN YOUR DEVICE<br /><small>TANKWARS plays in landscape</small></div>
+    <button id="fs" type="button" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

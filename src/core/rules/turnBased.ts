@@ -38,9 +38,15 @@ export interface TurnBasedConfig {
   terrainStyle: string; // id or 'random'
   /** 'drop' lets the players choose where their tank lands each round. */
   placement: 'drop' | 'random';
+  /**
+   * Seconds nobody may fire once the tanks are down. Bots used to shoot the
+   * instant a round began, and a finger still resting from the drop would
+   * start charging. Default 3; 0 skips the hold (tests).
+   */
+  countdown?: number;
 }
 
-export type Phase = 'placing' | 'aim' | 'resolving' | 'roundOver' | 'shop' | 'matchOver';
+export type Phase = 'placing' | 'countdown' | 'aim' | 'resolving' | 'roundOver' | 'shop' | 'matchOver';
 
 /** Closest two tanks may be dropped, and the dead margin at each map edge, in px. */
 const PLACE_MIN_GAP = 110;
@@ -107,6 +113,8 @@ export class TurnBasedMatch {
   shotsLeftThisTurn = 1;
   lastRoundWinner = -1;
   matchWinner = -1;
+  /** Seconds left of the pre-round hold while phase === 'countdown'. */
+  countdown = 0;
   /** Seconds the world has been idle after a shot — small pause before passing the turn. */
   private settleTimer = 0;
 
@@ -300,7 +308,13 @@ export class TurnBasedMatch {
   private beginAiming(): void {
     this.current = this.order[0];
     this.shotsLeftThisTurn = this.currentTank.cls.shots;
-    this.phase = 'aim';
+    const hold = this.config.countdown ?? 3;
+    if (hold > 0) {
+      this.countdown = hold;
+      this.phase = 'countdown';
+    } else {
+      this.phase = 'aim';
+    }
   }
 
   /**
@@ -309,6 +323,18 @@ export class TurnBasedMatch {
    */
   update(intent: Intent, dt: number): void {
     const w = this.world;
+    if (this.phase === 'countdown') {
+      // Aim and power may be set during the hold; firing and driving wait.
+      const t = this.currentTank;
+      if (intent.aimDelta !== 0) w.aim(t, t.angle + intent.aimDelta * AIM_SPEED * dt);
+      if (intent.powerDelta !== 0) w.setPower(t, t.power + intent.powerDelta * POWER_SPEED * dt);
+      if (intent.cycleWeapon !== 0) w.cycleWeapon(t, intent.cycleWeapon);
+      this.countdown -= dt;
+      if (this.countdown <= 0) this.phase = 'aim';
+      w.step(dt);
+      this.tally();
+      return;
+    }
     if (this.phase === 'aim') {
       const t = this.currentTank;
       if (intent.aimDelta !== 0) w.aim(t, t.angle + intent.aimDelta * AIM_SPEED * dt);

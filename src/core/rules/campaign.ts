@@ -36,6 +36,8 @@ export interface CampaignConfig {
    * first mission of a run.
    */
   loadout?: { credits: number; ammo: Record<string, number>; reinforcedHp: number };
+  /** Seconds between the briefing closing and the first shell. Default 3; 0 skips it. */
+  countdown?: number;
 }
 
 /** Per-level tallies for the campaign score. */
@@ -47,7 +49,7 @@ export interface LevelStats {
   crates: number;
 }
 
-export type CampaignPhase = 'brief' | 'live' | 'won' | 'lost';
+export type CampaignPhase = 'brief' | 'countdown' | 'live' | 'won' | 'lost';
 
 export interface BossState {
   def: BossDef;
@@ -108,6 +110,8 @@ export class CampaignLevel {
   phase: CampaignPhase = 'brief';
   /** The intro card is dismissed by the player; this is only a long backstop. */
   briefTimer = 20;
+  /** Seconds left of the hold before the fight goes live. */
+  countdownLeft = 0;
   /** Banner requests for the renderer (phase changes). */
   banners: string[] = [];
   private crateTimer = 0;
@@ -293,12 +297,19 @@ export class CampaignLevel {
     const w = this.world;
     if (this.phase === 'brief') {
       this.briefTimer -= dt;
-      if (this.briefTimer <= 0) {
+      if (this.briefTimer <= 0) this.startCountdown();
+      // Aim during the brief.
+      for (const idx of this.playerIndices) this.applyAim(w.tanks[idx], intents[idx], dt);
+      return;
+    }
+    if (this.phase === 'countdown') {
+      // Same as the brief: aim, but nothing fires or moves until it is over.
+      for (const idx of this.playerIndices) this.applyAim(w.tanks[idx], intents[idx], dt);
+      this.countdownLeft -= dt;
+      if (this.countdownLeft <= 0) {
         this.phase = 'live';
         this.banners.push('ENGAGE');
       }
-      // Aim during the brief.
-      for (const idx of this.playerIndices) this.applyAim(w.tanks[idx], intents[idx], dt);
       return;
     }
     if (this.phase !== 'live') {
@@ -382,12 +393,23 @@ export class CampaignLevel {
     }
   }
 
-  /** Skip the intro card and start the fight. */
+  /** Close the intro card. The fight goes live after the countdown. */
   beginFight(): void {
     if (this.phase !== 'brief') return;
     this.briefTimer = 0;
-    this.phase = 'live';
-    this.banners.push('ENGAGE');
+    this.startCountdown();
+  }
+
+  /** The hold between the briefing and the first shell: the enemy fired instantly before. */
+  private startCountdown(): void {
+    const hold = this.config.countdown ?? 3;
+    if (hold <= 0) {
+      this.phase = 'live';
+      this.banners.push('ENGAGE');
+      return;
+    }
+    this.countdownLeft = hold;
+    this.phase = 'countdown';
   }
 
   /**

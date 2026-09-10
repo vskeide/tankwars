@@ -107,6 +107,8 @@ export class BattleScene extends Phaser.Scene {
   private pauseUi: Phaser.GameObjects.Container | null = null;
   private pauseButtons: Button[] = [];
   private pauseShownAt = 0;
+  /** Last whole second shown of the pre-round countdown, so each fires once. */
+  private lastCountdownTick = -1;
   /** Objects making up the campaign intro card, destroyed when it is dismissed. */
   private briefCard: Phaser.GameObjects.GameObject[] = [];
   private droneViews = new Map<number, Phaser.GameObjects.Image>();
@@ -229,6 +231,10 @@ export class BattleScene extends Phaser.Scene {
     this.aimGfx = this.add.graphics().setDepth(35);
     this.placeGfx = this.add.graphics().setDepth(36);
     this.input.on('pointerdown', () => {
+      if (this.replay && !this.pauseUi) {
+        this.endReplay();
+        return;
+      }
       this.placeClick = true;
       this.dismissBriefCard();
     });
@@ -248,7 +254,11 @@ export class BattleScene extends Phaser.Scene {
     this.inputs = new InputRouter(this, 4);
     this.overlay = this.add.container(0, 0).setDepth(200).setVisible(false);
     if (touchActive()) {
-      this.touch = new TouchControls(this, this.world, { movement: this.world.mode.movement, realTime: !this.turn });
+      this.touch = new TouchControls(this, this.world, {
+        movement: this.world.mode.movement,
+        realTime: !this.turn,
+        onMenu: () => this.togglePause('exit'),
+      });
       // The status line is keyboard hints; the touch layer draws its own.
       this.hud.setStatusVisible(false);
       this.hud.onRackTap(() => this.touch?.queueCycle());
@@ -916,7 +926,10 @@ export class BattleScene extends Phaser.Scene {
   override update(_time: number, deltaMs: number): void {
     const frameDt = Math.min(0.1, deltaMs / 1000);
     if (this.replay) {
-      if (!this.paused) {
+      // startReplay() sets `paused` to freeze the world while it plays back, so
+      // the replay must not wait on that flag — only on the pause menu. (Gating
+      // on `paused` here froze every replay solid, with no way out on touch.)
+      if (!this.pauseUi) {
         this.advanceReplay(frameDt);
         if (this.inputs.isDown('Space') || this.inputs.isDown('Enter')) this.endReplay();
       }
@@ -950,6 +963,7 @@ export class BattleScene extends Phaser.Scene {
     this.screenFx.setHealth(watched && watched.alive ? watched.hp / Math.max(1, watched.maxHp) : 1);
     this.screenFx.update(frameDt);
     this.hud.update(this.world, watched, this.statusLine());
+    this.tickCountdown();
     this.checkPhase(frameDt);
   }
 
@@ -972,6 +986,9 @@ export class BattleScene extends Phaser.Scene {
         // it has left. Drive only: reusing turnIntent() here would let the
         // hold-to-charge branch move the power bar mid-flight.
         intent = this.driveOnlyIntent();
+      } else if (m.phase === 'countdown' && !m.currentTank.isBot) {
+        // Aim during the hold; the rules ignore fire and drive until it ends.
+        intent = this.turnIntent();
       }
       m.update(intent, dt);
     } else if (this.arena) {
@@ -1108,7 +1125,7 @@ export class BattleScene extends Phaser.Scene {
       rec.frames.splice(0, start);
       for (const f of rec.fx) f.step -= start;
     }
-    const label = this.add.text(0, 0, '◄◄ REPLAY  ·  SPACE to skip', { fontFamily: 'monospace', fontSize: '22px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 5 }).setOrigin(0.5).setDepth(140);
+    const label = this.add.text(0, 0, this.touch ? '◄◄ REPLAY  ·  tap to skip' : '◄◄ REPLAY  ·  SPACE to skip', { fontFamily: 'monospace', fontSize: '22px', color: hex(PAL.uiEdge), stroke: hex(PAL.uiInk), strokeThickness: 5 }).setOrigin(0.5).setDepth(140);
     this.replay = {
       step: 0,
       acc: 0,
@@ -1205,6 +1222,9 @@ export class BattleScene extends Phaser.Scene {
         const left = m.order.filter((i) => !this.world.tanks[i].placed).length;
         return `Round ${m.round}/${this.setup.rounds} · ${t?.name.toUpperCase() ?? ''} — choose your ground · move the mouse or ←→, ENTER or click to drop · ${left} left · first to drop fires first`;
       }
+      if (m.phase === 'countdown') {
+        return `Round ${m.round}/${this.setup.rounds} · ${m.currentTank.name.toUpperCase()} first · get ready — ${Math.ceil(m.countdown)}`;
+      }
       const cls = this.world.mode.tankClasses ? ` · ${m.currentTank.cls.name}` : '';
       const fuel = this.world.mode.movement ? ` · fuel ${m.currentTank.fuel}` : '';
       const drive = this.world.mode.movement ? '  A/D drive' : '';
@@ -1216,7 +1236,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.campaign) {
       const c = this.campaign;
       const li = LEVELS.findIndex((l) => l.id === c.level.id) + 1;
-      return `Campaign ${li}/${LEVELS.length} · ${c.level.name} · ${c.phase === 'brief' ? c.level.brief : 'A/D or ←→ drive  W/S or ↑↓ aim  hold SPACE to charge, release to fire  TAB weapon'}`;
+      return `Campaign ${li}/${LEVELS.length} · ${c.level.name} · ${c.phase === 'brief' ? c.level.brief : c.phase === 'countdown' ? `get ready — ${Math.ceil(c.countdownLeft)}` : 'A/D or ←→ drive  W/S or ↑↓ aim  hold SPACE to charge, release to fire  TAB weapon'}`;
     }
     const a = this.arena!;
     if (a.phase === 'countdown') return `Round ${a.round}/${this.setup.rounds} · ARENA · starting in ${Math.ceil(a.countdown)}`;
@@ -1317,11 +1337,11 @@ export class BattleScene extends Phaser.Scene {
     let aimLocked = false;
     if (this.turn) {
       tank = this.turn.currentTank;
-      phaseOk = this.turn.phase === 'aim' || this.turn.phase === 'resolving';
-      aimLocked = this.turn.phase !== 'aim';
+      phaseOk = this.turn.phase === 'aim' || this.turn.phase === 'resolving' || this.turn.phase === 'countdown';
+      aimLocked = this.turn.phase === 'resolving';
     } else if (this.campaign) {
       tank = this.world.tanks[this.campaign.playerIndices[0]] ?? null;
-      phaseOk = this.campaign.phase === 'live';
+      phaseOk = this.campaign.phase === 'live' || this.campaign.phase === 'countdown';
     }
     const human = tank && !tank.isBot && tank.alive ? tank : null;
     const enabled = !!human && phaseOk && !this.paused && !this.overlay.visible && !this.briefCard.length && !this.replay;
@@ -1329,6 +1349,22 @@ export class BattleScene extends Phaser.Scene {
     this.touch.setTarget(enabled ? human : null);
     this.touch.setAimLocked(aimLocked);
     this.touch.update();
+  }
+
+  /** "3 · 2 · 1" over the hold before the first shot, one banner per whole second. */
+  private tickCountdown(): void {
+    let left = -1;
+    if (this.turn && this.turn.phase === 'countdown') left = this.turn.countdown;
+    else if (this.campaign && this.campaign.phase === 'countdown') left = this.campaign.countdownLeft;
+    if (left < 0) {
+      this.lastCountdownTick = -1;
+      return;
+    }
+    const whole = Math.ceil(left);
+    if (whole !== this.lastCountdownTick) {
+      this.lastCountdownTick = whole;
+      this.hud.showBanner(whole > 0 ? String(whole) : 'FIRE', 800);
+    }
   }
 
   // ---- pause / leave ---------------------------------------------------------------
@@ -1641,15 +1677,19 @@ export class BattleScene extends Phaser.Scene {
     } else {
       items.push(this.add.text(NATIVE_W / 2, 300, `+${c.level.reward} credits`, { fontFamily: 'monospace', fontSize: '18px', color: hex(PAL.uiText) }).setOrigin(0.5));
     }
-    const hintText = finished || ironmanOver ? 'ENTER — commanders     ESC — menu' : won ? 'ENTER — campaign map     ESC — menu' : 'ENTER — retry     ESC — menu';
-    items.push(this.add.text(NATIVE_W / 2, NATIVE_H - 60, hintText, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5));
-    this.overlay.add(items).setVisible(true);
-    this.paused = true;
-    this.input.keyboard!.once('keydown-ENTER', () => {
+    const goOn = () => {
       if (finished || ironmanOver) this.scene.start('commander', { ...this.setup });
       else if (won && next) this.scene.start('campaignMap', { ...this.setup, levelId: next });
       else this.scene.start('battle', { ...this.setup, seed: (this.setup.seed * 17 + 3) & 0x7fffffff });
-    });
+    };
+    const goLabel = finished || ironmanOver ? 'COMMANDERS' : won ? 'CAMPAIGN MAP' : 'RETRY';
+    const hintText = this.touch ? '' : `ENTER — ${goLabel.toLowerCase()}     ESC — menu`;
+    items.push(this.add.text(NATIVE_W / 2, NATIVE_H - 130, hintText, { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5));
+    this.overlay.add(items).setVisible(true);
+    this.paused = true;
+    makeButton(this, NATIVE_W / 2 - 300, NATIVE_H - 100, 280, 56, goLabel, goOn, { fontSize: '20px', depth: 210, fixed: true, colour: PAL.glow });
+    makeButton(this, NATIVE_W / 2 + 20, NATIVE_H - 100, 280, 56, 'MENU', () => this.scene.start('menu'), { fontSize: '20px', depth: 210, fixed: true });
+    this.input.keyboard!.once('keydown-ENTER', goOn);
   }
 
   private showResults(): void {
@@ -1691,10 +1731,12 @@ export class BattleScene extends Phaser.Scene {
           .setOrigin(0.5, 0),
       );
     });
-    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 40, 'ENTER — back to menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
+    const hint = this.add.text(NATIVE_W / 2, NATIVE_H - 110, this.touch ? '' : 'ENTER — back to menu', { fontFamily: 'monospace', fontSize: '16px', color: hex(PAL.uiTextDim) }).setOrigin(0.5);
     items.push(hint);
     this.overlay.add(items).setVisible(true);
     this.paused = true;
+    // The button is the only way off this screen without a keyboard.
+    makeButton(this, NATIVE_W / 2 - 150, NATIVE_H - 90, 300, 56, 'BACK TO MENU', () => this.scene.start('menu'), { fontSize: '20px', depth: 210, fixed: true, colour: PAL.glow });
     this.input.keyboard!.once('keydown-ENTER', () => this.scene.start('menu'));
   }
 }

@@ -30,7 +30,8 @@ export class Hud {
     this.name = scene.add.text(28, 10, '', { ...FONT, fontStyle: 'bold' }).setDepth(101).setScrollFactor(0);
     this.aim = scene.add.text(320, 6, '', FONT).setDepth(101).setScrollFactor(0);
     this.weapon = scene.add.text(760, 10, '', FONT).setDepth(101).setScrollFactor(0);
-    this.windText = scene.add.text(NATIVE_W - 330, 10, 'WIND', { ...FONT, color: hex(PAL.uiTextDim) }).setDepth(101).setScrollFactor(0);
+    // Kept clear of the top-right corner, where the page draws the fullscreen button.
+    this.windText = scene.add.text(NATIVE_W - 390, 10, 'WIND', { ...FONT, color: hex(PAL.uiTextDim) }).setDepth(101).setScrollFactor(0);
     this.status = scene.add.text(8, NATIVE_H - 20, '', { ...FONT, fontSize: '13px', color: hex(PAL.uiTextDim), backgroundColor: hex(PAL.uiInk) }).setDepth(101).setScrollFactor(0);
     this.rack = scene.add.text(NATIVE_W - 12, HUD_H + 8, '', { ...FONT, fontSize: '13px', color: hex(PAL.uiTextDim), align: 'right', backgroundColor: hex(PAL.uiInk) }).setOrigin(1, 0).setDepth(101).setScrollFactor(0).setAlpha(0.9);
     this.help = scene.add.container(0, 0).setDepth(150).setScrollFactor(0).setVisible(false);
@@ -132,7 +133,7 @@ export class Hud {
     }
 
     // Wind gauge: centred bar, fills left or right.
-    const wx = NATIVE_W - 230;
+    const wx = NATIVE_W - 290;
     const ww = 210;
     g.fillStyle(PAL.uiPanel, 1).fillRect(wx, 14, ww, 16);
     g.fillStyle(PAL.uiPanelLit, 1).fillRect(wx + ww / 2, 12, 2, 20);
